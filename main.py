@@ -33,20 +33,6 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
- --- Keep-alive usando Flask ---
-app = Flask('')
-
-@app.route('/')
-def home():
-    return "Bot activo."
-
-class ServerThread(threading.Thread):
-    def run(self):
-        make_server('0.0.0.0', 8080, app).serve_forever()
-
-ServerThread().start()
-
-
 # --- FUNCIONES ORIGINALES (SIN MODIFICAR) ---
 def generate_lightning_qr(lightning_invoice):
     """Genera un código QR para una factura Lightning"""
