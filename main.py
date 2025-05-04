@@ -13,6 +13,10 @@ from datetime import datetime
 from discord.ext import commands
 from discord import app_commands
 
+import threading
+from flask import Flask
+from werkzeug.serving import make_server
+
 # Configuración desde variables de entorno
 TOKEN = os.getenv('DISCORD_TOKEN')
 LNBITS_URL = os.getenv('LNBITS_URL', 'https://demo.lnbits.com').rstrip('/')
@@ -28,6 +32,20 @@ YOUR_DISCORD_ID = 865597179145486366
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
+
+ --- Keep-alive usando Flask ---
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Bot activo."
+
+class ServerThread(threading.Thread):
+    def run(self):
+        make_server('0.0.0.0', 8080, app).serve_forever()
+
+ServerThread().start()
+
 
 # --- FUNCIONES ORIGINALES (SIN MODIFICAR) ---
 def generate_lightning_qr(lightning_invoice):
