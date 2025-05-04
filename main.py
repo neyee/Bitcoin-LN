@@ -12,30 +12,35 @@ from io import BytesIO
 from datetime import datetime
 from discord.ext import commands
 from discord import app_commands
+from flask import Flask, request, jsonify
 
-import threading
-from flask import Flask
-from werkzeug.serving import make_server
-
-# Configuración desde variables de entorno
+# ConfiguraciÃ³n desde variables de entorno
 TOKEN = os.getenv('DISCORD_TOKEN')
 LNBITS_URL = os.getenv('LNBITS_URL', 'https://demo.lnbits.com').rstrip('/')
 INVOICE_KEY = os.getenv('INVOICE_KEY')
 ADMIN_KEY = os.getenv('ADMIN_KEY')
-FOOTER_TEXT = os.getenv('FOOTER_TEXT', '⚡ Lightning Wallet Bot')
+FOOTER_TEXT = os.getenv('FOOTER_TEXT', 'âš¡ Lightning Wallet Bot')
 OKX_API_KEY = os.getenv('OKX_API_KEY')
 OKX_SECRET_KEY = os.getenv('OKX_SECRET_KEY')
 
 # ID del administrador (REEMPLAZA CON TU ID REAL)
 YOUR_DISCORD_ID = 865597179145486366
 
+# ConfiguraciÃ³n de Flask
+app = Flask(__name__)
+
+@app.route('/health')
+def health_check():
+    return jsonify({"status": "ok", "service": "discord-bot"}), 200
+
+# ConfiguraciÃ³n de Discord
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 # --- FUNCIONES ORIGINALES (SIN MODIFICAR) ---
 def generate_lightning_qr(lightning_invoice):
-    """Genera un código QR para una factura Lightning"""
+    """Genera un cÃ³digo QR para una factura Lightning"""
     try:
         qr = qrcode.QRCode(
             version=1,
@@ -53,7 +58,7 @@ def generate_lightning_qr(lightning_invoice):
         print(f"Error generando QR: {e}")
         return None
 
-# --- FUNCIONES AÑADIDAS (SOLO ESTO ES NUEVO) ---
+# --- FUNCIONES AÃ‘ADIDAS (SOLO ESTO ES NUEVO) ---
 def sign_okx_request(method, path):
     """Firma peticiones a OKX"""
     timestamp = str(time.time())
@@ -85,7 +90,7 @@ async def get_btc_price():
         return None
 
 async def send_deposit_notification(payment_data):
-    """Envía notificación de depósito al admin"""
+    """EnvÃ­a notificaciÃ³n de depÃ³sito al admin"""
     try:
         admin = await bot.fetch_user(YOUR_DISCORD_ID)
         if not admin:
@@ -96,29 +101,29 @@ async def send_deposit_notification(payment_data):
         usd_value = (amount_sats / 100_000_000) * btc_price if btc_price else None
 
         embed = discord.Embed(
-            title="💰 ¡Nuevo Depósito Recibido!",
+            title="ðŸ’° Â¡Nuevo DepÃ³sito Recibido!",
             description=f"**{amount_sats:,.0f} sats**" + (f" (${usd_value:,.2f} USD)" if usd_value else ""),
             color=0x28a745,
             timestamp=datetime.now()
         )
-        embed.add_field(name="📝 Descripción", value=f"```{payment_data.get('memo', 'Sin descripción')[:100]}```", inline=False)
+        embed.add_field(name="ðŸ“ DescripciÃ³n", value=f"```{payment_data.get('memo', 'Sin descripciÃ³n')[:100]}```", inline=False)
         embed.set_footer(text=FOOTER_TEXT)
         
         await admin.send(embed=embed)
     except Exception as e:
-        print(f"Error enviando notificación: {e}")
+        print(f"Error enviando notificaciÃ³n: {e}")
 
-# --- TUS COMANDOS ORIGINALES COMPLETOS (CON AÑADIDOS PARA USD) ---
+# --- TUS COMANDOS ORIGINALES COMPLETOS (CON AÃ‘ADIDOS PARA USD) ---
 @bot.tree.command(name="factura", description="Genera una factura Lightning con QR")
 @app_commands.describe(
-    monto="Cantidad en satoshis (mínimo 10)",
+    monto="Cantidad en satoshis (mÃ­nimo 10)",
     descripcion="Concepto del pago (opcional)"
 )
 async def generar_factura(interaction: discord.Interaction, monto: int, descripcion: str = "Factura generada desde Discord"):
     """Genera una factura Lightning con QR"""
     try:
         if monto < 1:
-            await interaction.response.send_message("🔶 El monto mínimo es 1 satoshis", ephemeral=True)
+            await interaction.response.send_message("âŒ El monto mÃ­nimo es 1 satoshis", ephemeral=True)
             return
 
         headers = {
@@ -141,12 +146,12 @@ async def generar_factura(interaction: discord.Interaction, monto: int, descripc
 
         if response.status_code != 201:
             error = response.json().get('detail', 'Error desconocido')
-            await interaction.response.send_message(f"🔴 Error al crear factura: {error}", ephemeral=True)
+            await interaction.response.send_message(f"âš ï¸ Error al crear factura: {error}", ephemeral=True)
             return
 
         invoice_data = response.json()
         if 'bolt11' not in invoice_data:
-            await interaction.response.send_message("🔴 La factura generada no es válida", ephemeral=True)
+            await interaction.response.send_message("âš ï¸ La factura generada no es vÃ¡lida", ephemeral=True)
             return
 
         invoice = invoice_data['bolt11']
@@ -154,21 +159,21 @@ async def generar_factura(interaction: discord.Interaction, monto: int, descripc
         
         if not qr_buffer:
             await interaction.response.send_message(
-                "⚠️ Factura generada pero no se pudo crear el QR\n"
+                "âš ï¸ Factura generada pero no se pudo crear el QR\n"
                 f"Puedes pagar con: ```{invoice}```",
                 ephemeral=False
             )
             return
 
-        # Crear embed (tu código original)
+        # Crear embed (tu cÃ³digo original)
         embed = discord.Embed(
-            title="📄 Factura Lightning",
-            description=f"**{monto:,} satoshis**\n💡 {descripcion}",
+            title="ðŸ“œ Factura Lightning",
+            description=f"**{monto:,} satoshis**\nðŸ’¡ {descripcion}",
             color=0x9932CC,
             timestamp=datetime.now()
         )
         
-        # Añadir conversión a USD (nuevo)
+        # AÃ±adir conversiÃ³n a USD (nuevo)
         btc_price = await get_btc_price()
         if btc_price:
             usd_value = (monto / 100_000_000) * btc_price
@@ -192,7 +197,7 @@ async def generar_factura(interaction: discord.Interaction, monto: int, descripc
 
     except Exception as e:
         print(f"Error en generar_factura: {e}")
-        await interaction.response.send_message("⚠️ Error interno del sistema", ephemeral=True)
+        await interaction.response.send_message("âš ï¸ Error interno del sistema", ephemeral=True)
 
 @bot.tree.command(name="retirar", description="Pagar una factura Lightning (retirar fondos)")
 @app_commands.describe(factura="Factura Lightning en formato BOLT11")
@@ -201,7 +206,7 @@ async def retirar_fondos(interaction: discord.Interaction, factura: str):
     try:
         if not factura.startswith("lnbc"):
             await interaction.response.send_message(
-                "🔶 La factura no parece ser válida (debe comenzar con 'lnbc')",
+                "âŒ La factura no parece ser vÃ¡lida (debe comenzar con 'lnbc')",
                 ephemeral=True
             )
             return
@@ -227,13 +232,13 @@ async def retirar_fondos(interaction: discord.Interaction, factura: str):
         if 'error' in payment_data or 'payment_hash' not in payment_data:
             error = payment_data.get('detail', payment_data.get('error', 'Error desconocido'))
             await interaction.response.send_message(
-                f"🔴 Error al procesar el pago: {error}",
+                f"âš ï¸ Error al procesar el pago: {error}",
                 ephemeral=True
             )
             return
 
         embed = discord.Embed(
-            title="✅ Pago Realizado",
+            title="âœ… Pago Realizado",
             description=f"Se ha procesado el pago correctamente.",
             color=0x28a745,
             timestamp=datetime.now()
@@ -253,7 +258,7 @@ async def retirar_fondos(interaction: discord.Interaction, factura: str):
                 inline=True
             )
             
-            # Añadir conversión a USD (nuevo)
+            # AÃ±adir conversiÃ³n a USD (nuevo)
             btc_price = await get_btc_price()
             if btc_price:
                 usd_value = (amount_sats / 100_000_000) * btc_price
@@ -269,7 +274,7 @@ async def retirar_fondos(interaction: discord.Interaction, factura: str):
     except Exception as e:
         print(f"Error en retirar_fondos: {e}")
         await interaction.response.send_message(
-            "⚠️ Error al procesar el pago",
+            "âš ï¸ Error al procesar el pago",
             ephemeral=True
         )
 
@@ -292,13 +297,13 @@ async def ver_balance(interaction: discord.Interaction):
         
         if 'error' in wallet_info:
             await interaction.response.send_message(
-                f"🔴 Error al obtener balance: {wallet_info['error']}",
+                f"âš ï¸ Error al obtener balance: {wallet_info['error']}",
                 ephemeral=True
             )
             return
 
         embed = discord.Embed(
-            title="💰 Balance de la Billetera",
+            title="ðŸ’° Balance de la Billetera",
             color=0xF7931A,
             timestamp=datetime.now()
         )
@@ -310,7 +315,7 @@ async def ver_balance(interaction: discord.Interaction):
             inline=False
         )
         
-        # Añadir conversión a USD (nuevo)
+        # AÃ±adir conversiÃ³n a USD (nuevo)
         btc_price = await get_btc_price()
         if btc_price:
             usd_value = (balance_sats / 100_000_000) * btc_price
@@ -330,7 +335,7 @@ async def ver_balance(interaction: discord.Interaction):
 
     except Exception as e:
         print(f"Error en ver_balance: {e}")
-        await interaction.response.send_message("⚠️ Error al obtener el balance", ephemeral=True)
+        await interaction.response.send_message("âš ï¸ Error al obtener el balance", ephemeral=True)
 
 # --- TAREA EN SEGUNDO PLANO PARA NOTIFICACIONES ---
 async def check_payments_background():
@@ -360,44 +365,49 @@ async def check_payments_background():
         
         await asyncio.sleep(30)
 
-# --- INICIALIZACIÓN --- 
+# --- INICIALIZACIÃ“N --- 
 @bot.event
 async def on_ready():
     try:
-        # Inicia la verificación de pagos en segundo plano
+        # Inicia la verificaciÃ³n de pagos en segundo plano
         bot.loop.create_task(check_payments_background())
         
         # Sincroniza los comandos slash
         await bot.tree.sync()
         
-        print(f"\n✅ Bot conectado como: {bot.user}")
-        print(f"🌐 URL LNBits: {LNBITS_URL}")
-        print(f"🔔 Notificaciones activas para: {YOUR_DISCORD_ID}")
+        print(f"\nâœ… Bot conectado como: {bot.user}")
+        print(f"ðŸŒ URL LNBits: {LNBITS_URL}")
+        print(f"ðŸ”” Notificaciones activas para: {YOUR_DISCORD_ID}")
         
-        # Verifica conexión con OKX
+        # Verifica conexiÃ³n con OKX
         btc_price = await get_btc_price()
         if btc_price:
-            print(f"💰 Precio BTC actual: ${btc_price:,.2f} USD")
+            print(f"ðŸ’° Precio BTC actual: ${btc_price:,.2f} USD")
         else:
-            print("⚠️ No se pudo obtener precio de OKX (las conversiones USD estarán desactivadas)")
+            print("âš ï¸ No se pudo obtener precio de OKX (las conversiones USD estarÃ¡n desactivadas)")
             
     except Exception as e:
-        print(f"⛔ Error crítico al iniciar: {e}")
+        print(f"âŒ Error crÃ­tico al iniciar: {e}")
+
+def run_flask():
+    """FunciÃ³n para ejecutar Flask en un puerto especÃ­fico"""
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
 
 if __name__ == "__main__":
-    # Validación de dependencias (original)
+    # ValidaciÃ³n de dependencias (original)
     try:
         from PIL import Image
-        print("✅ Dependencias de imagen verificadas (Pillow)")
+        print("âœ… Dependencias de imagen verificadas (Pillow)")
     except ImportError:
-        print("\n❌ Falta la dependencia Pillow (PIL)")
+        print("\nâŒ Falta la dependencia Pillow (PIL)")
         print("Ejecuta en la consola: pip install pillow qrcode[pil]\n")
 
-    # Validación de variables de entorno (original + OKX)
+    # ValidaciÃ³n de variables de entorno (original + OKX)
     required_vars = {
         'DISCORD_TOKEN': 'Token del bot de Discord',
         'LNBITS_URL': 'URL de LNBits', 
-        'INVOICE_KEY': 'Clave de facturación LNBits',
+        'INVOICE_KEY': 'Clave de facturaciÃ³n LNBits',
         'ADMIN_KEY': 'Clave admin LNBits',
         'OKX_API_KEY': 'API Key de OKX (opcional)',
         'OKX_SECRET_KEY': 'Secret Key de OKX (opcional)'
@@ -406,15 +416,19 @@ if __name__ == "__main__":
     missing = [var for var in required_vars if not os.getenv(var)]
     
     if missing:
-        print("\n❌ Faltan variables de entorno:")
+        print("\nâŒ Faltan variables de entorno:")
         for var in missing:
             print(f"- {var}: {required_vars[var]}")
-        print("\nConfigúralas en Replit -> Secrets (⚙️)")
+        print("\nConfigÃºralas en Replit -> Secrets (âš™ï¸)")
     else:
-        # Inicia el bot (original)
+        # Inicia el bot y Flask en paralelo
+        import threading
+        flask_thread = threading.Thread(target=run_flask)
+        flask_thread.start()
+        
         try:
             bot.run(TOKEN)
         except discord.LoginFailure:
-            print("\n⛔ Error: Token de Discord inválido")
+            print("\nâŒ Error: Token de Discord invÃ¡lido")
         except Exception as e:
-            print(f"\n⛔ Error inesperado: {e}")
+            print(f"\nâŒ Error inesperado: {e}")
