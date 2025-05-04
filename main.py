@@ -116,6 +116,12 @@ async def retirar_fondos(interaction: discord.Interaction, factura: str):
             )
             return
 
+        # Extraemos el monto de la factura
+        amount_msats = int(factura.split('lnbc')[1].split('p')[0])
+        amount_sats = amount_msats // 1000 if amount_msats >= 1000 else 1
+        btc_price = await get_btc_price()
+        usd_value = (amount_sats / 100_000_000) * btc_price if btc_price else None
+
         class ConfirmView(discord.ui.View):
             def __init__(self, original_interaction):
                 super().__init__()
@@ -176,7 +182,6 @@ async def retirar_fondos(interaction: discord.Interaction, factura: str):
                         inline=True
                     )
                     
-                    btc_price = await get_btc_price()
                     if btc_price:
                         usd_value = (amount_sats / 100_000_000) * btc_price
                         embed.add_field(
@@ -188,9 +193,18 @@ async def retirar_fondos(interaction: discord.Interaction, factura: str):
                 embed.set_footer(text=FOOTER_TEXT)
                 await button_interaction.followup.send(embed=embed)
 
+        # Mensaje de confirmación con los montos
         view = ConfirmView(interaction)
+        embed = discord.Embed(
+            title="Confirmar Pago",
+            description=f"Vas a pagar una factura de:\n**{amount_sats:,.0f} sats**" + 
+                       (f" (${usd_value:,.2f} USD)" if usd_value else ""),
+            color=0xF7931A
+        )
+        embed.set_footer(text="Confirma el pago con el botón")
+        
         await interaction.response.send_message(
-            "¿Confirmas que deseas pagar esta factura Lightning?",
+            embed=embed,
             view=view,
             ephemeral=True
         )
@@ -200,7 +214,7 @@ async def retirar_fondos(interaction: discord.Interaction, factura: str):
         await interaction.response.send_message(
             "Error al procesar el pago",
             ephemeral=True
-        )
+                )
 
 # --- RESTO DE TUS COMANDOS ORIGINALES (SIN MODIFICAR) ---
 @bot.tree.command(name="factura", description="Genera una factura Lightning con QR")
