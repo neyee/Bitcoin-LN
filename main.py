@@ -206,77 +206,101 @@ async def retirar_fondos(interaction: discord.Interaction, factura: str):
     try:
         if not factura.startswith("lnbc"):
             await interaction.response.send_message(
-                "âŒ La factura no parece ser vÃ¡lida (debe comenzar con 'lnbc')",
+                "La factura no parece ser válida (debe comenzar con 'lnbc')",
                 ephemeral=True
             )
             return
 
-        headers = {
-            'X-Api-Key': ADMIN_KEY,
-            'Content-type': 'application/json'
-        }
-        payload = {
-            "out": True,
-            "bolt11": factura
-        }
-        
-        response = requests.post(
-            f"{LNBITS_URL}/api/v1/payments",
-            json=payload,
-            headers=headers,
-            timeout=10
-        )
+        # Primero mostramos el monto y botón de confirmación
+        class ConfirmView(discord.ui.View):
+            def __init__(self, original_interaction):
+                super().__init__()
+                self.original_interaction = original_interaction
 
-        payment_data = response.json()
-        
-        if 'error' in payment_data or 'payment_hash' not in payment_data:
-            error = payment_data.get('detail', payment_data.get('error', 'Error desconocido'))
-            await interaction.response.send_message(
-                f"âš ï¸ Error al procesar el pago: {error}",
-                ephemeral=True
-            )
-            return
+            @discord.ui.button(label='Confirmar Pago', style=discord.ButtonStyle.green)
+            async def confirm(self, button_interaction: discord.Interaction, button: discord.ui.Button):
+                if button_interaction.user != self.original_interaction.user:
+                    await button_interaction.response.send_message("No puedes confirmar este pago", ephemeral=True)
+                    return
+                
+                await self.process_payment(button_interaction)
 
-        embed = discord.Embed(
-            title="âœ… Pago Realizado",
-            description=f"Se ha procesado el pago correctamente.",
-            color=0x28a745,
-            timestamp=datetime.now()
-        )
-        
-        embed.add_field(
-            name="Hash del Pago",
-            value=f"```{payment_data['payment_hash']}```",
-            inline=False
-        )
-        
-        if 'amount' in payment_data:
-            amount_sats = payment_data['amount'] / 1000
-            embed.add_field(
-                name="Monto",
-                value=f"**{amount_sats:,.0f} sats**",
-                inline=True
-            )
-            
-            # AÃ±adir conversiÃ³n a USD (nuevo)
-            btc_price = await get_btc_price()
-            if btc_price:
-                usd_value = (amount_sats / 100_000_000) * btc_price
-                embed.add_field(
-                    name="USD",
-                    value=f"${usd_value:,.2f} USD",
-                    inline=True
+            async def process_payment(self, button_interaction):
+                headers = {
+                    'X-Api-Key': ADMIN_KEY,
+                    'Content-type': 'application/json'
+                }
+                payload = {
+                    "out": True,
+                    "bolt11": factura
+                }
+                
+                response = requests.post(
+                    f"{LNBITS_URL}/api/v1/payments",
+                    json=payload,
+                    headers=headers,
+                    timeout=10
                 )
-        
-        embed.set_footer(text=FOOTER_TEXT)
-        await interaction.response.send_message(embed=embed)
+
+                payment_data = response.json()
+                
+                if 'error' in payment_data or 'payment_hash' not in payment_data:
+                    error = payment_data.get('detail', payment_data.get('error', 'Error desconocido'))
+                    await button_interaction.response.send_message(
+                        f"Error al procesar el pago: {error}",
+                        ephemeral=True
+                    )
+                    return
+
+                embed = discord.Embed(
+                    title="Pago Realizado",
+                    description="Se ha procesado el pago correctamente.",
+                    color=0x28a745,
+                    timestamp=datetime.now()
+                )
+                
+                embed.add_field(
+                    name="Hash del Pago",
+                    value=f"```{payment_data['payment_hash']}```",
+                    inline=False
+                )
+                
+                if 'amount' in payment_data:
+                    amount_sats = payment_data['amount'] / 1000
+                    embed.add_field(
+                        name="Monto",
+                        value=f"{amount_sats:,.0f} sats",
+                        inline=True
+                    )
+                    
+                    btc_price = await get_btc_price()
+                    if btc_price:
+                        usd_value = (amount_sats / 100_000_000) * btc_price
+                        embed.add_field(
+                            name="USD",
+                            value=f"${usd_value:,.2f} USD",
+                            inline=True
+                        )
+                
+                embed.set_footer(text=FOOTER_TEXT)
+                await button_interaction.response.send_message(embed=embed)
+
+        # Mostrar vista de confirmación primero
+        view = ConfirmView(interaction)
+        await interaction.response.send_message(
+            f"¿Confirmar?",
+            view=view,
+            ephemeral=True
+        )
 
     except Exception as e:
         print(f"Error en retirar_fondos: {e}")
         await interaction.response.send_message(
-            "âš ï¸ Error al procesar el pago",
+            "Error al procesar el pago",
             ephemeral=True
-        )
+                )
+
+
 
 @bot.tree.command(name="balance", description="Muestra el saldo actual de la billetera")
 async def ver_balance(interaction: discord.Interaction):
@@ -376,18 +400,18 @@ async def on_ready():
         await bot.tree.sync()
         
         print(f"\nâœ… Bot conectado como: {bot.user}")
-        print(f"ðŸŒ URL LNBits: {LNBITS_URL}")
-        print(f"ðŸ”” Notificaciones activas para: {YOUR_DISCORD_ID}")
+        print(f"✅ URL LNBits: {LNBITS_URL}")
+        print(f"✅”” Notificaciones activas para: {YOUR_DISCORD_ID}")
         
         # Verifica conexiÃ³n con OKX
         btc_price = await get_btc_price()
         if btc_price:
-            print(f"ðŸ’° Precio BTC actual: ${btc_price:,.2f} USD")
+            print(f"💹Precio BTC actual: ${btc_price:,.2f} USD")
         else:
             print("âš ï¸ No se pudo obtener precio de OKX (las conversiones USD estarÃ¡n desactivadas)")
             
     except Exception as e:
-        print(f"âŒ Error crÃ­tico al iniciar: {e}")
+        print(f"Error crÃ­tico al iniciar: {e}")
 
 def run_flask():
     """FunciÃ³n para ejecutar Flask en un puerto especÃ­fico"""
@@ -400,7 +424,7 @@ if __name__ == "__main__":
         from PIL import Image
         print("âœ… Dependencias de imagen verificadas (Pillow)")
     except ImportError:
-        print("\nâŒ Falta la dependencia Pillow (PIL)")
+        print("\ Falta la dependencia Pillow (PIL)")
         print("Ejecuta en la consola: pip install pillow qrcode[pil]\n")
 
     # ValidaciÃ³n de variables de entorno (original + OKX)
@@ -416,7 +440,7 @@ if __name__ == "__main__":
     missing = [var for var in required_vars if not os.getenv(var)]
     
     if missing:
-        print("\nâŒ Faltan variables de entorno:")
+        print("\❌Faltan variables de entorno:")
         for var in missing:
             print(f"- {var}: {required_vars[var]}")
         print("\nConfigÃºralas en Replit -> Secrets (âš™ï¸)")
@@ -429,6 +453,6 @@ if __name__ == "__main__":
         try:
             bot.run(TOKEN)
         except discord.LoginFailure:
-            print("\nâŒ Error: Token de Discord invÃ¡lido")
+            print("\ Error: Token de Discord invalido")
         except Exception as e:
             print(f"\nâŒ Error inesperado: {e}")
