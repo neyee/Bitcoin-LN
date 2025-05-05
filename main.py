@@ -101,58 +101,159 @@ async def update_bot_presence():
             await bot.change_presence(activity=discord.Game(name=f"BTC: ${btc_price:,.2f}"))
         await asyncio.sleep(60)
 
-# --- COMANDOS ---
-@bot.tree.command(name="estado", description="Muestra el estado actual del bot.")
+
+# --- COMANDO /retirar ORIGINAL ---
+@bot.tree.command(name="retirar", description="Pagar una factura Lightning (retirar fondos)")
+@app_commands.describe(factura="Factura Lightning en formato BOLT11")
+async def retirar_fondos(interaction: discord.Interaction, factura: str):
+    """Paga una factura Lightning para retirar fondos"""
+    try:
+        if not factura.startswith("lnbc"):
+            await interaction.response.send_message(
+                "La factura no parece ser válida (debe comenzar con 'lnbc')",
+                ephemeral=True
+            )
+            return
+
+        class ConfirmView(discord.ui.View):
+            def __init__(self, original_interaction):
+                super().__init__()
+                self.original_interaction = original_interaction
+
+            @discord.ui.button(label='Confirmar Pago', style=discord.ButtonStyle.green)
+            async def confirm(self, button_interaction: discord.Interaction, button: discord.ui.Button):
+                if button_interaction.user != self.original_interaction.user:
+                    await button_interaction.response.send_message("No puedes confirmar este pago", ephemeral=True)
+                    return
+
+                await button_interaction.response.defer()
+
+                headers = {
+                    'X-Api-Key': ADMIN_KEY,
+                    'Content-type': 'application/json'
+                }
+                payload = {
+                    "out": True,
+                    "bolt11": factura
+                }
+
+                response = requests.post(
+                    f"{LNBITS_URL}/api/v1/payments",
+                    json=payload,
+                    headers=headers,
+                    timeout=10
+                )
+
+                payment_data = response.json()
+
+                if 'error' in payment_data or 'payment_hash' not in payment_data:
+                    error = payment_data.get('detail', payment_data.get('error', 'Error desconocido'))
+                    await button_interaction.followup.send(
+                        f"Error al procesar el pago: {error}",
+                        ephemeral=True
+                    )
+                    return
+
+                embed = discord.Embed(
+                    title="Pago Realizado",
+                    description="Se ha procesado el pago correctamente.",
+                    color=0x28a745,
+                    timestamp=datetime.now()
+                )
+
+                embed.add_field(
+                    name="Hash del Pago",
+                    value=f"```{payment_data['payment_hash']}```",
+                    inline=False
+                )
+
+                if 'amount' in payment_data:
+                    amount_sats = payment_data['amount'] / 1000
+                    embed.add_field(
+                        name="Monto",
+                        value=f"{amount_sats:,.0f} sats",
+                        inline=True
+                    )
+
+                    btc_price = await get_btc_price()
+                    if btc_price:
+                        usd_value = (amount_sats / 100_000_000) * btc_price
+                        embed.add_field(
+                            name="USD",
+                            value=f"${usd_value:,.2f} USD",
+                            inline=True
+                        )
+
+                embed.set_footer(text=FOOTER_TEXT)
+                await button_interaction.followup.send(embed=embed)
+
+        view = ConfirmView(interaction)
+        await interaction.response.send_message(
+            "¿Confirmas que deseas pagar esta factura Lightning?",
+            view=view,
+            ephemeral=True
+        )
+
+    except Exception as e:
+        print(f"Error en retirar_fondos: {e}")
+        await interaction.response.send_message(
+            "Error al procesar el pago",
+            ephemeral=True
+        )
+
+# --- COMANDO /estado ---
+@bot.tree.command(name="estado", description="Muestra el estado del bot")
 async def estado(interaction: discord.Interaction):
-    """Comando para mostrar el estado del bot."""
     btc_price = await get_btc_price()
     embed = discord.Embed(
         title="📡 Estado del Bot",
-        description="El bot está activo y funcionando.",
-        color=discord.Color.green(),
-        timestamp=datetime.now()
-    )
-    embed.add_field(
-        name="Precio BTC actual",
-        value=f"${btc_price:,.2f} USD" if btc_price else "No disponible",
-        inline=False
-    )
-    embed.set_footer(text=FOOTER_TEXT)
-    await interaction.response.send_message(embed=embed)
-
-@bot.tree.command(name="calcular_sats", description="Calcula cuántos satoshis equivalen a un monto en USD.")
-@app_commands.describe(dolares="Cantidad en dólares para convertir a satoshis.")
-async def calcular_sats(interaction: discord.Interaction, dolares: float):
-    """Convierte dólares a satoshis basado en el precio actual de BTC."""
-    btc_price = await get_btc_price()
-    if not btc_price:
-        await interaction.response.send_message("No se pudo obtener el precio actual de BTC.", ephemeral=True)
-        return
-
-    sats = (dolares / btc_price) * 100_000_000
-    embed = discord.Embed(
-        title="💰 Conversión USD a Satoshis",
-        description=f"**${dolares:,.2f} USD** equivale aproximadamente a **{sats:,.0f} sats**.",
+        description="El bot está funcionando correctamente.",
         color=discord.Color.blue(),
         timestamp=datetime.now()
     )
+    embed.add_field(name="Precio BTC actual", value=f"${btc_price:,.2f} USD" if btc_price else "No disponible", inline=False)
     embed.set_footer(text=FOOTER_TEXT)
     await interaction.response.send_message(embed=embed)
 
-@bot.tree.command(name="help", description="Muestra todos los comandos del bot.")
-async def help_command(interaction: discord.Interaction):
-    """Listar los comandos disponibles del bot."""
+# --- COMANDO /historial_pagos ---
+@bot.tree.command(name="historial_pagos", description="Ver historial de pagos recibidos")
+async def historial(interaction: discord.Interaction):
+    if not payment_history:
+        await interaction.response.send_message("Aún no se han recibido pagos.", ephemeral=True)
+        return
+
     embed = discord.Embed(
-        title="📋 Comandos Disponibles",
-        description="Lista de comandos que puedes usar con este bot:",
+        title="📜 Historial de Pagos Recibidos",
         color=discord.Color.purple(),
         timestamp=datetime.now()
     )
-    embed.add_field(name="/estado", value="Muestra el estado del bot y el precio actual de BTC.", inline=False)
-    embed.add_field(name="/calcular_sats", value="Calcula cuántos satoshis corresponden a un monto en USD.", inline=False)
-    embed.add_field(name="/help", value="Muestra esta ayuda.", inline=False)
+
+    for p in payment_history[-10:]:  # Máximo 10 últimos pagos
+        embed.add_field(
+            name=f"🧾 {p['memo']}",
+            value=f"**{p['sats']:,.0f} sats** (~ ${p['usd']:,.2f} USD)",
+            inline=False
+        )
+
     embed.set_footer(text=FOOTER_TEXT)
     await interaction.response.send_message(embed=embed)
+
+# --- BACKGROUND TASK PARA VERIFICAR PAGOS ---
+async def check_payments():
+    await bot.wait_until_ready()
+    last_check = None
+    while not bot.is_closed():
+        try:
+            headers = {'X-Api-Key': INVOICE_KEY}
+            r = requests.get(f"{LNBITS_URL}/api/v1/payments", headers=headers)
+            pagos = r.json()
+            for p in pagos:
+                if p["pending"] is False and p["payment_hash"] != last_check and p["incoming"]:
+                    await send_deposit_notification(p)
+                    last_check = p["payment_hash"]
+        except Exception as e:
+            print(f"Error verificando pagos: {e}")
+        await asyncio.sleep(25)
 
 # --- EVENTOS ---
 @bot.event
