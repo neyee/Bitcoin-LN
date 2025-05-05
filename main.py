@@ -8,7 +8,8 @@ from io import BytesIO
 from datetime import datetime
 from discord.ext import commands
 from discord import app_commands
-from flask_app import run_flask_app
+
+from flask_app import run_flask  # Importa la función para ejecutar Flask
 
 # --- CONFIGURACIÓN ---
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -16,7 +17,7 @@ LNBITS_URL = os.getenv("LNBITS_URL", "https://legend.lnbits.com").rstrip('/')
 INVOICE_KEY = os.getenv("INVOICE_KEY")
 ADMIN_KEY = os.getenv("ADMIN_KEY")
 FOOTER_TEXT = os.getenv("FOOTER_TEXT", "⚡ Lightning Wallet Bot")
-YOUR_DISCORD_ID = int(os.getenv("YOUR_DISCORD_ID", "1234567890"))
+YOUR_DISCORD_ID = 865597179145486366
 
 # --- INICIALIZACIÓN DEL BOT ---
 intents = discord.Intents.default()
@@ -64,7 +65,7 @@ async def send_deposit_notification(payment):
     embed.add_field(name="Descripción", value=f"```{user_memo}```", inline=False)
     embed.set_footer(text=FOOTER_TEXT)
 
-    admin = await bot.fetch_user(865597179145486366)
+    admin = await bot.fetch_user(YOUR_DISCORD_ID)
     if admin:
         await admin.send(embed=embed)
 
@@ -117,7 +118,7 @@ async def ver_balance(interaction: discord.Interaction):
 @app_commands.describe(factura="Factura Lightning en formato BOLT11")
 async def retirar_fondos(interaction: discord.Interaction, factura: str):
     """Paga una factura Lightning para retirar fondos (solo admin)."""
-    if interaction.user.id != YOUR_DISCORD_ID:
+    if interaction.user.id != 865597179145486366:
         await interaction.response.send_message("❌ No tienes permiso para usar este comando.", ephemeral=True)
         return
 
@@ -200,7 +201,7 @@ async def calcular_sats(interaction: discord.Interaction, dolares: float):
         await interaction.response.send_message("No se pudo obtener el precio actual de BTC.", ephemeral=True)
         return
 
-    sats = (dolares / btc_price) * 100_000_000
+    sats = int((dolares / btc_price) * 100_000_000)  # Conversión correcta a satoshis
     embed = discord.Embed(
         title="💰 Conversión USD a Satoshis",
         description=f"**${dolares:,.2f} USD** equivale aproximadamente a **{sats:,.0f} sats**.",
@@ -220,11 +221,12 @@ async def help_command(interaction: discord.Interaction):
         timestamp=datetime.now()
     )
     embed.add_field(name="/estado", value="Muestra el estado del bot y el precio actual de BTC.", inline=False)
-    embed.add_field(name="/calcular_sats", value="Calcula cuántos satoshis corresponden a un monto en USD.", inline=False)
+    embed.add_field(name="/calcular_sats", value="Calcula cuántos satoshisjuj corresponden a un monto en USD.", inline=False)
     embed.add_field(name="/help", value="Muestra esta ayuda.", inline=False)
     embed.add_field(name="/factura", value = "Permite generar una nueva factura", inline = False)
-    embed.add_field(name = "/retirar", value = "Comando exclusivo para administradores", inline = False)
+    embed.add_field(name = "/retirar", value = "Comando exclusivo para u", inline = False)
     embed.add_field(name = "/balance", value = "Muestra el balance actual de la wallet", inline = False)
+    embed.add_field(name = "/historial_pagos", value = "Muestra el historial de pago de la wallet", inline = False)
     embed.set_footer(text=FOOTER_TEXT)
     await interaction.response.send_message(embed=embed)
 
@@ -250,7 +252,7 @@ async def historial(interaction: discord.Interaction):
     embed.set_footer(text=FOOTER_TEXT)
     await interaction.response.send_message(embed=embed)
 
-# --- MONITOREO DE PAGOS EN SEGUNDO PLANO ---
+# --- TAREAS EN SEGUNDO PLANO ---
 async def check_payments():
     """Verifica depósitos entrantes en segundo plano."""
     await bot.wait_until_ready()
@@ -283,7 +285,8 @@ async def on_ready():
 # --- INICIAR EL BOT ---
 if __name__ == "__main__":
     import threading
-    flask_thread = threading.Thread(target=run_flask_app)
+    from flask_app import run_flask  # Importa la función run_flask
+    flask_thread = threading.Thread(target=run_flask)  # Utiliza la función importada
     flask_thread.daemon = True
     flask_thread.start()
     bot.run(TOKEN)
