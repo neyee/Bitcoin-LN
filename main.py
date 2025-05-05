@@ -8,6 +8,10 @@ from io import BytesIO
 from datetime import datetime
 from discord.ext import commands
 from discord import app_commands
+from flask import Flask  # Importa Flask directamente aquí
+from flask_app import run_flask
+import threading
+
 
 # --- CONFIGURACIÓN ---
 TOKEN = os.getenv("DISCORD_TOKEN")
