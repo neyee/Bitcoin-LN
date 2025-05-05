@@ -8,7 +8,6 @@ from io import BytesIO
 from datetime import datetime
 from discord.ext import commands
 from discord import app_commands
-from flask import Flask
 
 # --- CONFIGURACIÓN ---
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -61,7 +60,7 @@ async def send_deposit_notification(payment):
     embed = discord.Embed(
         title="✅ Nuevo Depósito Recibido",
         description=f"**{sats:,.0f} sats** (~${usd:,.2f} USD)",
-        color=0xFFA500,  # Naranja
+        color=0x4CAF50,  # Verde
         timestamp=datetime.now()
     )
     embed.add_field(name="Descripción", value=f"```{user_memo}```", inline=False)
@@ -254,6 +253,71 @@ async def historial(interaction: discord.Interaction):
     embed.set_footer(text=FOOTER_TEXT)
     await interaction.response.send_message(embed=embed)
 
+# --- COMANDOS DEL ADMINISTRADOR ---
+@bot.command()
+async def sync(ctx):
+    """Sincroniza los comandos slash (solo admin)."""
+    if ctx.author.id == YOUR_DISCORD_ID:
+        await bot.tree.sync()
+        await ctx.send("Comandos sincronizados correctamente.")
+    else:
+        await ctx.send("No tienes permiso para usar este comando.")
+
+# --- DETECCIÓN DE FACTURAS LIGHTNING ---
+@bot.event
+async def on_message(message):
+    """Detecta facturas Lightning en los mensajes."""
+    if message.author == bot.user:
+        return
+
+    if message.content.startswith("lnbc"):
+        embed = discord.Embed(
+            title="Confirmar Pago",
+            description=f"¿Deseas confirmar el pago de esta factura:\n```{message.content}```?",
+            color=0x4CAF50,  # Verde
+            timestamp=datetime.now()
+        )
+        embed.set_footer(text=FOOTER_TEXT)
+
+        # Añadir botones de confirmación
+        view = ConfirmPayment(message.content, message.author.id)
+        await message.channel.send(embed=embed, view=view)
+
+    await bot.process_commands(message)
+
+class ConfirmPayment(discord.ui.View):
+    def __init__(self, invoice, user_id):
+        super().__init__(timeout=60)
+        self.invoice = invoice
+        self.user_id = user_id
+
+    @discord.ui.button(label="Confirmar Pago", style=discord.ButtonStyle.green)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Confirma el pago de la factura (solo admin)."""
+        if interaction.user.id == YOUR_DISCORD_ID:
+            headers = {'X-Api-Key': ADMIN_KEY}
+            payload = {"out": True, "bolt11": self.invoice}
+            try:
+                response = await bot.loop.run_in_executor(None, lambda: requests.post(f"{LNBITS_URL}/api/v1/payments", headers=headers, json=payload, timeout=10))
+                response.raise_for_status()  # Lanza una excepción para errores HTTP
+                data = response.json()
+                if "payment_hash" in data:
+                    embed = discord.Embed(
+                        title="Pago Confirmado",
+                        description=f"El pago de la factura ha sido confirmado correctamente.",
+                        color=0x4CAF50,  # Verde
+                        timestamp=datetime.now()
+                    )
+                    embed.add_field(name="Hash del Pago", value=f"```{data['payment_hash']}```", inline=False)
+                    await interaction.response.send_message(embed=embed, ephemeral=True)
+                else:
+                    await interaction.response.send_message(f"Error al confirmar el pago: {data.get('detail', 'Error Desconocido')}", ephemeral=True)
+            except requests.exceptions.RequestException as e:
+                print(f"Error al confirmar el pago: {e}")
+                await interaction.response.send_message(f"Error al confirmar el pago: {e}", ephemeral=True)
+        else:
+            await interaction.response.send_message("Solo el administrador puede confirmar este pago.", ephemeral=True)
+
 # --- TAREAS EN SEGUNDO PLANO ---
 async def check_payments():
     """Verifica depósitos entrantes en segundo plano."""
@@ -285,6 +349,8 @@ async def on_ready():
     bot.loop.create_task(update_bot_presence())
 
 # --- INICIAR FLASK ---
+app = Flask(__name__)
+
 @app.route("/")
 def hello():
     return "Lightning Wallet Bot Backend is Running!"
