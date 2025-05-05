@@ -9,15 +9,13 @@ from datetime import datetime
 from discord.ext import commands
 from discord import app_commands
 
-from flask_app import run_flask  # Importa la función para ejecutar Flask
-
 # --- CONFIGURACIÓN ---
 TOKEN = os.getenv("DISCORD_TOKEN")
 LNBITS_URL = os.getenv("LNBITS_URL", "https://legend.lnbits.com").rstrip('/')
 INVOICE_KEY = os.getenv("INVOICE_KEY")
 ADMIN_KEY = os.getenv("ADMIN_KEY")
 FOOTER_TEXT = os.getenv("FOOTER_TEXT", "⚡ Lightning Wallet Bot")
-YOUR_DISCORD_ID = 865597179145486366
+YOUR_DISCORD_ID = 865597179145486366  # Tu ID de Discord
 
 # --- INICIALIZACIÓN DEL BOT ---
 intents = discord.Intents.default()
@@ -59,7 +57,7 @@ async def send_deposit_notification(payment):
     embed = discord.Embed(
         title="✅ Nuevo Depósito Recibido",
         description=f"**{sats:,.0f} sats** (~${usd:,.2f} USD)",
-        color=0x1abc9c,
+        color=0xFFA500,  # Naranja
         timestamp=datetime.now()
     )
     embed.add_field(name="Descripción", value=f"```{user_memo}```", inline=False)
@@ -95,7 +93,7 @@ async def ver_balance(interaction: discord.Interaction):
 
         embed = discord.Embed(
             title="💰 Balance de la Billetera",
-            color=discord.Color.orange(),
+            color=0xFFA500,  # Naranja
             timestamp=datetime.now()
         )
 
@@ -118,7 +116,7 @@ async def ver_balance(interaction: discord.Interaction):
 @app_commands.describe(factura="Factura Lightning en formato BOLT11")
 async def retirar_fondos(interaction: discord.Interaction, factura: str):
     """Paga una factura Lightning para retirar fondos (solo admin)."""
-    if interaction.user.id != 865597179145486366:
+    if interaction.user.id != YOUR_DISCORD_ID:
         await interaction.response.send_message("❌ No tienes permiso para usar este comando.", ephemeral=True)
         return
 
@@ -138,7 +136,7 @@ async def retirar_fondos(interaction: discord.Interaction, factura: str):
         embed = discord.Embed(
             title="Pago Realizado",
             description=f"Pago Lightning procesado correctamente.",
-            color=discord.Color.green(),
+            color=0xFFA500,  # Naranja
             timestamp=datetime.now()
         )
         embed.add_field(name="Hash del Pago", value=f"```{data['payment_hash']}```", inline=False)
@@ -164,7 +162,7 @@ async def generar_factura(interaction: discord.Interaction, monto: int, descripc
         embed = discord.Embed(
             title="⚡ Factura Lightning Generada",
             description=f"**{monto:,.0f} sats** - `{descripcion}`",
-            color=discord.Color.blue(),
+            color=0xFFA500,  # Naranja
             timestamp=datetime.now()
         )
         embed.add_field(name="BOLT11", value=f"```{bolt11}```", inline=False)
@@ -181,7 +179,7 @@ async def estado(interaction: discord.Interaction):
     embed = discord.Embed(
         title="📡 Estado del Bot",
         description="El bot está activo y funcionando.",
-        color=discord.Color.blue(),
+        color=0xFFA500,  # Naranja
         timestamp=datetime.now()
     )
     embed.add_field(
@@ -205,7 +203,7 @@ async def calcular_sats(interaction: discord.Interaction, dolares: float):
     embed = discord.Embed(
         title="💰 Conversión USD a Satoshis",
         description=f"**${dolares:,.2f} USD** equivale aproximadamente a **{sats:,.0f} sats**.",
-        color=discord.Color.blue(),
+        color=0xFFA500,  # Naranja
         timestamp=datetime.now()
     )
     embed.set_footer(text=FOOTER_TEXT)
@@ -217,14 +215,14 @@ async def help_command(interaction: discord.Interaction):
     embed = discord.Embed(
         title="📋 Comandos Disponibles",
         description="Lista de comandos que puedes usar con este bot:",
-        color=discord.Color.purple(),
+        color=0xFFA500,  # Naranja
         timestamp=datetime.now()
     )
     embed.add_field(name="/estado", value="Muestra el estado del bot y el precio actual de BTC.", inline=False)
-    embed.add_field(name="/calcular_sats", value="Calcula cuántos satoshisjuj corresponden a un monto en USD.", inline=False)
+    embed.add_field(name="/calcular_sats", value="Calcula cuántos satoshis corresponden a un monto en USD.", inline=False)
     embed.add_field(name="/help", value="Muestra esta ayuda.", inline=False)
     embed.add_field(name="/factura", value = "Permite generar una nueva factura", inline = False)
-    embed.add_field(name = "/retirar", value = "Comando exclusivo para u", inline = False)
+    embed.add_field(name = "/retirar", value = "Comando exclusivo para administradores", inline = False)
     embed.add_field(name = "/balance", value = "Muestra el balance actual de la wallet", inline = False)
     embed.add_field(name = "/historial_pagos", value = "Muestra el historial de pago de la wallet", inline = False)
     embed.set_footer(text=FOOTER_TEXT)
@@ -238,7 +236,7 @@ async def historial(interaction: discord.Interaction):
 
     embed = discord.Embed(
         title="📜 Historial de Pagos Recibidos",
-        color=discord.Color.purple(),
+        color=0xFFA500,  # Naranja
         timestamp=datetime.now()
     )
 
