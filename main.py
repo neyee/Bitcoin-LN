@@ -8,6 +8,7 @@ from io import BytesIO
 from datetime import datetime
 from discord.ext import commands
 from discord import app_commands
+from flask import Flask
 
 # --- CONFIGURACIÓN ---
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -15,13 +16,16 @@ LNBITS_URL = os.getenv("LNBITS_URL", "https://legend.lnbits.com").rstrip('/')
 INVOICE_KEY = os.getenv("INVOICE_KEY")
 ADMIN_KEY = os.getenv("ADMIN_KEY")
 FOOTER_TEXT = os.getenv("FOOTER_TEXT", "⚡ Lightning Wallet Bot")
-YOUR_DISCORD_ID = 865597179145486366  # Tu ID de Discord
+YOUR_DISCORD_ID = 865597179145486366
 
 # --- INICIALIZACIÓN DEL BOT ---
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 payment_history = []
+
+# --- INICIALIZACIÓN DE FLASK ---
+app = Flask(__name__)
 
 # --- FUNCIONES AUXILIARES ---
 def generate_lightning_qr(lightning_invoice):
@@ -280,11 +284,18 @@ async def on_ready():
     bot.loop.create_task(check_payments())
     bot.loop.create_task(update_bot_presence())
 
+# --- INICIAR FLASK ---
+@app.route("/")
+def hello():
+    return "Lightning Wallet Bot Backend is Running!"
+
+def run_flask():
+    app.run(host="0.0.0.0", port=5000)
+
 # --- INICIAR EL BOT ---
 if __name__ == "__main__":
     import threading
-    from flask_app import run_flask  # Importa la función run_flask
-    flask_thread = threading.Thread(target=run_flask)  # Utiliza la función importada
+    flask_thread = threading.Thread(target=run_flask)
     flask_thread.daemon = True
     flask_thread.start()
     bot.run(TOKEN)
