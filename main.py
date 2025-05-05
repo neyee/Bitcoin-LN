@@ -219,7 +219,7 @@ async def update_bot_presence():
         btc_price = await get_btc_price()
         if btc_price:
             await bot.change_presence(activity=discord.Game(name=f"BTC: ${btc_price:,.2f} USD"))
-        await asyncio.sleep(3600)
+        await asyncio.sleep(60)
 
 @bot.event
 async def on_ready():
