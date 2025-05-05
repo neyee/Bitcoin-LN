@@ -85,11 +85,18 @@ async def send_deposit_notification(payment):
         "usd": usd
     })
 
-# --- COMANDO /retirar ORIGINAL ---
+# --- COMANDO /retirar PARA ADMINS ---
 @bot.tree.command(name="retirar", description="Pagar una factura Lightning (retirar fondos)")
 @app_commands.describe(factura="Factura Lightning en formato BOLT11")
 async def retirar_fondos(interaction: discord.Interaction, factura: str):
-    """Paga una factura Lightning para retirar fondos"""
+    """Paga una factura Lightning para retirar fondos (sólo administrador)"""
+    if interaction.user.id != YOUR_DISCORD_ID:
+        await interaction.response.send_message(
+            "❌ No tienes permiso para usar este comando.",
+            ephemeral=True
+        )
+        return
+
     try:
         if not factura.startswith("lnbc"):
             await interaction.response.send_message(
@@ -120,12 +127,7 @@ async def retirar_fondos(interaction: discord.Interaction, factura: str):
                     "bolt11": factura
                 }
 
-                response = requests.post(
-                    f"{LNBITS_URL}/api/v1/payments",
-                    json=payload,
-                    headers=headers,
-                    timeout=10
-                )
+                response = requests.post(f"{LNBITS_URL}/api/v1/payments", json=payload, headers=headers)
 
                 payment_data = response.json()
 
@@ -144,28 +146,16 @@ async def retirar_fondos(interaction: discord.Interaction, factura: str):
                     timestamp=datetime.now()
                 )
 
-                embed.add_field(
-                    name="Hash del Pago",
-                    value=f"```{payment_data['payment_hash']}```",
-                    inline=False
-                )
+                embed.add_field(name="Hash del Pago", value=f"```{payment_data['payment_hash']}```", inline=False)
 
                 if 'amount' in payment_data:
                     amount_sats = payment_data['amount'] / 1000
-                    embed.add_field(
-                        name="Monto",
-                        value=f"{amount_sats:,.0f} sats",
-                        inline=True
-                    )
+                    embed.add_field(name="Monto", value=f"{amount_sats:,.0f} sats", inline=True)
 
                     btc_price = await get_btc_price()
                     if btc_price:
                         usd_value = (amount_sats / 100_000_000) * btc_price
-                        embed.add_field(
-                            name="USD",
-                            value=f"${usd_value:,.2f} USD",
-                            inline=True
-                        )
+                        embed.add_field(name="USD", value=f"${usd_value:,.2f} USD", inline=True)
 
                 embed.set_footer(text=FOOTER_TEXT)
                 await button_interaction.followup.send(embed=embed)
@@ -179,76 +169,65 @@ async def retirar_fondos(interaction: discord.Interaction, factura: str):
 
     except Exception as e:
         print(f"Error en retirar_fondos: {e}")
-        await interaction.response.send_message(
-            "Error al procesar el pago",
-            ephemeral=True
+        await interaction.response.send_message("Error al procesar el pago", ephemeral=True)
+
+# --- COMANDO /factura ---
+@bot.tree.command(name="factura", description="Genera una factura Lightning con QR")
+@app_commands.describe(monto="Cantidad en satoshis", descripcion="Descripción del pago")
+async def generar_factura(interaction: discord.Interaction, monto: int, descripcion: str = "Pago desde Discord"):
+    try:
+        if monto < 1:
+            await interaction.response.send_message("El monto mínimo es 1 sat.", ephemeral=True)
+            return
+
+        payload = {"out": False, "amount": monto, "memo": descripcion, "unit": "sat"}
+        headers = {'X-Api-Key': INVOICE_KEY}
+        r = requests.post(f"{LNBITS_URL}/api/v1/payments", json=payload, headers=headers)
+        data = r.json()
+        bolt11 = data.get("bolt11")
+
+        if not bolt11:
+            await interaction.response.send_message("Error al generar la factura.", ephemeral=True)
+            return
+
+        qr = generate_lightning_qr(f"lightning:{bolt11}")
+        file = discord.File(qr, filename="invoice.png")
+
+        embed = discord.Embed(
+            title="⚡ Factura Generada",
+            description=f"{monto:,} sats - *{descripcion}*",
+            color=discord.Color.gold(),
+            timestamp=datetime.now()
         )
+        embed.add_field(name="BOLT11", value=f"```{bolt11[:80]}...```", inline=False)
+        btc_price = await get_btc_price()
+        if btc_price:
+            usd = (monto / 100_000_000) * btc_price
+            embed.add_field(name="USD Aproximado", value=f"${usd:,.2f} USD", inline=True)
+        embed.set_image(url="attachment://invoice.png")
+        embed.set_footer(text=FOOTER_TEXT)
 
-# --- COMANDO /estado ---
-@bot.tree.command(name="estado", description="Muestra el estado del bot")
-async def estado(interaction: discord.Interaction):
-    btc_price = await get_btc_price()
-    embed = discord.Embed(
-        title="📡 Estado del Bot",
-        description="El bot está funcionando correctamente.",
-        color=discord.Color.blue(),
-        timestamp=datetime.now()
-    )
-    embed.add_field(name="Precio BTC actual", value=f"${btc_price:,.2f} USD" if btc_price else "No disponible", inline=False)
-    embed.set_footer(text=FOOTER_TEXT)
-    await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, file=file)
 
-# --- COMANDO /historial_pagos ---
-@bot.tree.command(name="historial_pagos", description="Ver historial de pagos recibidos")
-async def historial(interaction: discord.Interaction):
-    if not payment_history:
-        await interaction.response.send_message("Aún no se han recibido pagos.", ephemeral=True)
-        return
+    except Exception as e:
+        print(f"Error en generar_factura: {e}")
+        await interaction.response.send_message("Error interno del sistema", ephemeral=True)
 
-    embed = discord.Embed(
-        title="📜 Historial de Pagos Recibidos",
-        color=discord.Color.purple(),
-        timestamp=datetime.now()
-    )
+# --- Presencia del bot ---
+async def update_bot_presence():
+    while True:
+        btc_price = await get_btc_price()
+        if btc_price:
+            await bot.change_presence(activity=discord.Game(name=f"BTC: ${btc_price:,.2f} USD"))
+        await asyncio.sleep(3600)
 
-    for p in payment_history[-10:]:  # Máximo 10 últimos pagos
-        embed.add_field(
-            name=f"🧾 {p['memo']}",
-            value=f"**{p['sats']:,.0f} sats** (~ ${p['usd']:,.2f} USD)",
-            inline=False
-        )
-
-    embed.set_footer(text=FOOTER_TEXT)
-    await interaction.response.send_message(embed=embed)
-
-# --- BACKGROUND TASK PARA VERIFICAR PAGOS ---
-async def check_payments():
-    await bot.wait_until_ready()
-    last_check = None
-    while not bot.is_closed():
-        try:
-            headers = {'X-Api-Key': INVOICE_KEY}
-            r = requests.get(f"{LNBITS_URL}/api/v1/payments", headers=headers)
-            pagos = r.json()
-            for p in pagos:
-                if p["pending"] is False and p["payment_hash"] != last_check and p["incoming"]:
-                    await send_deposit_notification(p)
-                    last_check = p["payment_hash"]
-        except Exception as e:
-            print(f"Error verificando pagos: {e}")
-        await asyncio.sleep(25)
-
-# --- EVENTOS ---
 @bot.event
 async def on_ready():
     await bot.tree.sync()
     print(f"✅ Bot conectado como: {bot.user}")
+    bot.loop.create_task(update_bot_presence())
     bot.loop.create_task(check_payments())
 
 # --- MAIN ---
 if __name__ == "__main__":
-    import threading
-    flask_thread = threading.Thread(target=run_flask)
-    flask_thread.daemon = True
-    flask_thread.start()
     bot.run(TOKEN)
