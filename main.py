@@ -10,7 +10,7 @@ from discord.ext import commands
 from discord import app_commands
 from flask import Flask  # Importa Flask directamente aquí
 import threading
-
+from pylnbits.decode import decode
 
 # --- CONFIGURACIÓN ---
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -274,17 +274,33 @@ async def on_message(message):
         return
 
     if message.content.startswith("lnbc"):
-        embed = discord.Embed(
-            title="Confirmar Pago",
-            description=f"¿Deseas confirmar el pago de esta factura:\n```{message.content}```?",
-            color=0x4CAF50,  # Verde
-            timestamp=datetime.now()
-        )
-        embed.set_footer(text=FOOTER_TEXT)
+        invoice = message.content
+        try:
+            decoded_invoice = decode(invoice)
+            sats_amount = decoded_invoice.amount_msat // 1000  # Convertir a sats
+            description = decoded_invoice.description
 
-        # Añadir botones de confirmación
-        view = ConfirmPayment(message.content, message.author.id)
-        await message.channel.send(embed=embed, view=view)
+            embed = discord.Embed(
+                title="Confirmar Pago",
+                description=(
+                    f"¿Deseas confirmar el pago de esta factura?\n"
+                    f"```{invoice}```\n\n"
+                    f"Cantidad: **{sats_amount} sats**\n"
+                    f"Descripción: `{description}`"
+                ),
+                color=0x4CAF50,  # Verde
+                timestamp=datetime.now()
+            )
+            embed.set_footer(text=FOOTER_TEXT)
+
+            # Añadir botones de confirmación
+            view = ConfirmPayment(invoice, message.author.id)
+            await message.channel.send(embed=embed, view=view)
+
+        except Exception as e:
+            print(f"Error decodificando factura: {e}")
+            await message.channel.send("Error al decodificar la factura.", ephemeral=True)
+
 
     await bot.process_commands(message)
 
