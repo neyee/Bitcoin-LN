@@ -10,7 +10,7 @@ from discord.ext import commands
 from discord import app_commands
 from flask import Flask  # Importa Flask directamente aquí
 import threading
-from pylnbits.decode import decode
+
 
 # --- CONFIGURACIÓN ---
 TOKEN = os.getenv("DISCORD_TOKEN")
