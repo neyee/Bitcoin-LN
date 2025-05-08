@@ -6,9 +6,9 @@ import asyncio
 import aiohttp
 from io import BytesIO
 from datetime import datetime
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord import app_commands
-from flask import Flask  # Importa Flask directamente aquí
+from flask import Flask
 import threading
 
 # --- CONFIGURACIÓN ---
@@ -19,6 +19,7 @@ ADMIN_KEY = os.getenv("ADMIN_KEY")
 FOOTER_TEXT = os.getenv("FOOTER_TEXT", "⚡ Lightning Wallet Bot")
 YOUR_DISCORD_ID = int(os.getenv("YOUR_DISCORD_ID", 0))
 OKX_API_URL = os.getenv("OKX_API_URL", "https://www.okx.com/api/v5/market/ticker?instId=")  # Formato: BTC-USDT
+SYNC_INTERVAL = int(os.getenv("SYNC_INTERVAL", 60 * 60))  # Intervalo de sincronización en segundos (por defecto 1 hora)
 
 # --- INICIALIZACIÓN DEL BOT ---
 intents = discord.Intents.default()
@@ -306,13 +307,26 @@ async def enviar_embed(interaction: discord.Interaction, canal: discord.TextChan
 
 # --- COMANDOS DEL ADMINISTRADOR ---
 @bot.command()
-async def sync(ctx):
+async def sync_commands(ctx):
     """Sincroniza los comandos slash (solo admin)."""
     if ctx.author.id == YOUR_DISCORD_ID:
-        await bot.tree.sync()
-        await ctx.send("Comandos sincronizados correctamente.")
+        try:
+            await bot.tree.sync()
+            await ctx.send("Comandos sincronizados correctamente.")
+        except Exception as e:
+            await ctx.send(f"Error al sincronizar comandos: {e}")
     else:
         await ctx.send("No tienes permiso para usar este comando.")
+
+# --- TAREA EN SEGUNDO PLANO PARA SINCRONIZAR COMANDOS ---
+@tasks.loop(seconds=SYNC_INTERVAL)
+async def auto_sync():
+    """Sincroniza los comandos slash automáticamente."""
+    try:
+        await bot.tree.sync()
+        print("Comandos sincronizados automáticamente.")
+    except Exception as e:
+        print(f"Error al sincronizar comandos automáticamente: {e}")
 
 # --- DETECCIÓN DE FACTURAS LIGHTNING ---
 @bot.event
@@ -322,33 +336,8 @@ async def on_message(message):
         return
 
     if message.content.startswith("lnbc"):
-        invoice = message.content
-        try:
-            decoded_invoice = decode(invoice)
-            sats_amount = decoded_invoice.amount_msat // 1000  # Convertir a sats
-            description = decoded_invoice.description
-
-            embed = discord.Embed(
-                title="Confirmar Pago",
-                description=(
-                    f"¿Deseas confirmar el pago de esta factura?\n"
-                    f"```{invoice}```\n\n"
-                    f"Cantidad: **{sats_amount} sats**\n"
-                    f"Descripción: `{description}`"
-                ),
-                color=0x4CAF50,  # Verde
-                timestamp=datetime.now()
-            )
-            embed.set_footer(text=FOOTER_TEXT)
-
-            # Añadir botones de confirmación
-            view = ConfirmPayment(invoice, message.author.id)
-            await message.channel.send(embed=embed, view=view)
-
-        except Exception as e:
-            print(f"Error decodificando factura: {e}")
-            await message.channel.send("Error al decodificar la factura.", ephemeral=True)
-
+        print("Factura Lightning detectada. La confirmación automática está deshabilitada.")
+        await message.channel.send("Factura Lightning detectada. La confirmación automática está deshabilitada.")
 
     await bot.process_commands(message)
 
@@ -414,6 +403,7 @@ async def on_ready():
     print(f"✅ Bot conectado como: {bot.user}")
     bot.loop.create_task(check_payments())
     bot.loop.create_task(update_bot_presence())
+    auto_sync.start()  # Inicia la tarea de sincronización automática
 
 # --- INICIAR FLASK ---
 app = Flask(__name__)
