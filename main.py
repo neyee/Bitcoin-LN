@@ -10,6 +10,7 @@ from discord.ext import commands, tasks
 from discord import app_commands
 from flask import Flask
 import threading
+from collections import defaultdict
 
 # --- CONFIGURACIÓN ---
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -18,14 +19,18 @@ INVOICE_KEY = os.getenv("INVOICE_KEY")
 ADMIN_KEY = os.getenv("ADMIN_KEY")
 FOOTER_TEXT = os.getenv("FOOTER_TEXT", "⚡ Lightning Wallet Bot")
 YOUR_DISCORD_ID = int(os.getenv("YOUR_DISCORD_ID", 0))
-OKX_API_URL = os.getenv("OKX_API_URL", "https://www.okx.com/api/v5/market/ticker?instId=")  # Formato: BTC-USDT
-SYNC_INTERVAL = int(os.getenv("SYNC_INTERVAL", 60 * 60))  # Intervalo de sincronización en segundos (por defecto 1 hora)
+OKX_API_URL = os.getenv("OKX_API_URL", "https://www.okx.com/api/v5/market/ticker?instId=")
+SYNC_INTERVAL = int(os.getenv("SYNC_INTERVAL", 60 * 60))
+WELCOME_CHANNEL_ID = int(os.getenv("WELCOME_CHANNEL_ID", 0))  # Canal para mensajes de bienvenida
+DEFAULT_COLOR = int(os.getenv("DEFAULT_COLOR", "0xFFA500"), 16)  # Color por defecto para embeds (naranja)
 
 # --- INICIALIZACIÓN DEL BOT ---
 intents = discord.Intents.default()
 intents.message_content = True
+intents.members = True  # Necesario para on_member_join
 bot = commands.Bot(command_prefix="!", intents=intents)
 payment_history = []
+user_balances = defaultdict(int) # Para el sistema de economía
 
 # --- INICIALIZACIÓN DE FLASK ---
 app = Flask(__name__)
@@ -64,7 +69,7 @@ async def send_deposit_notification(payment):
     embed = discord.Embed(
         title="✅ Nuevo Depósito Recibido",
         description=f"**{sats:,.0f} sats** (~${usd:,.2f} USD)",
-        color=0x4CAF50,  # Verde
+        color=0x4CAF50,
         timestamp=datetime.now()
     )
     embed.add_field(name="Descripción", value=f"```{user_memo}```", inline=False)
@@ -76,15 +81,6 @@ async def send_deposit_notification(payment):
 
     payment_history.append({"memo": user_memo, "sats": sats, "usd": usd})
 
-# --- PRESENCIA DEL BOT ---
-async def update_bot_presence():
-    """Actualiza la presencia del bot con el precio de BTC."""
-    while True:
-        btc_price = await get_btc_price()
-        if btc_price:
-            await bot.change_presence(activity=discord.Game(name=f"BTC: ${btc_price:,.2f}"))
-        await asyncio.sleep(60)
-
 async def get_okx_price(instrument_id: str):
     """Obtiene el precio de un instrumento de OKX."""
     try:
@@ -92,11 +88,20 @@ async def get_okx_price(instrument_id: str):
             async with session.get(f"{OKX_API_URL}{instrument_id}") as resp:
                 data = await resp.json()
                 if data["code"] == "0":
-                    return data["data"][0]["last"]  # 'last' es el precio
+                    return data["data"][0]["last"]
                 else:
                     return None
     except:
         return None
+
+# --- PRESENCIA DEL BOT ---
+async def update_bot_presence():
+    """Actualiza la presencia del bot con el precio de BTC."""
+    while True:
+        btc_price = await get_btc_price()
+        if btc_price:
+            await bot.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name=f"BTC: ${btc_price:,.2f}"))
+        await asyncio.sleep(60)
 
 # --- COMANDOS ---
 @bot.tree.command(name="balance", description="Muestra el saldo actual de la billetera")
@@ -113,7 +118,7 @@ async def ver_balance(interaction: discord.Interaction):
 
         embed = discord.Embed(
             title="💰 Balance de la Billetera",
-            color=0xFFA500,  # Naranja
+            color=DEFAULT_COLOR,
             timestamp=datetime.now()
         )
 
@@ -155,8 +160,7 @@ async def retirar_fondos(interaction: discord.Interaction, factura: str):
 
         embed = discord.Embed(
             title="Pago Realizado",
-            description=f"Pago Lightning procesado correctamente.",
-            color=0xFFA500,  # Naranja
+            color=DEFAULT_COLOR,
             timestamp=datetime.now()
         )
         embed.add_field(name="Hash del Pago", value=f"```{data['payment_hash']}```", inline=False)
@@ -182,7 +186,7 @@ async def generar_factura(interaction: discord.Interaction, monto: int, descripc
         embed = discord.Embed(
             title="⚡ Factura Lightning Generada",
             description=f"**{monto:,.0f} sats** - `{descripcion}`",
-            color=0xFFA500,  # Naranja
+            color=DEFAULT_COLOR,
             timestamp=datetime.now()
         )
         embed.add_field(name="BOLT11", value=f"```{bolt11}```", inline=False)
@@ -193,23 +197,29 @@ async def generar_factura(interaction: discord.Interaction, monto: int, descripc
         await interaction.response.send_message("Error interno al generar la factura.", ephemeral=True)
 
 @bot.tree.command(name="precios", description="Muestra los precios de diferentes tokens desde OKX")
-async def precios(interaction: discord.Interaction):
-    """Muestra los precios de diferentes tokens desde OKX."""
-    tokens = ["BTC-USDT", "ETH-USDT", "LTC-USDT"]  # Agrega más tokens aquí
-    prices = {}
+async def precios(interaction: discord.Interaction, *tokens: str):
+    """Muestra los precios de diferentes tokens desde OKX.
 
+    Args:
+        tokens: Lista de tokens a buscar (ej: BTC-USDT ETH-USDT).
+    """
+    if not tokens:
+        await interaction.response.send_message("Por favor, especifica al menos un token (ej: BTC-USDT).", ephemeral=True)
+        return
+
+    prices = {}
     for token in tokens:
         price = await get_okx_price(token)
         if price:
             prices[token] = price
 
     if not prices:
-        await interaction.response.send_message("No se pudieron obtener los precios de los tokens.", ephemeral=True)
+        await interaction.response.send_message("No se pudieron obtener los precios de los tokens especificados.", ephemeral=True)
         return
 
     embed = discord.Embed(
         title="💰 Precios de Tokens (OKX)",
-        color=0xFFA500,  # Naranja
+        color=DEFAULT_COLOR,
         timestamp=datetime.now()
     )
 
@@ -228,11 +238,11 @@ async def calcular_sats(interaction: discord.Interaction, dolares: float):
         await interaction.response.send_message("No se pudo obtener el precio actual de BTC.", ephemeral=True)
         return
 
-    sats = int((dolares / btc_price) * 100_000_000)  # Conversión correcta a satoshis
+    sats = int((dolares / btc_price) * 100_000_000)
     embed = discord.Embed(
         title="💰 Conversión USD a Satoshis",
         description=f"**${dolares:,.2f} USD** equivale aproximadamente a **{sats:,.0f} sats**.",
-        color=0xFFA500,  # Naranja
+        color=DEFAULT_COLOR,
         timestamp=datetime.now()
     )
     embed.set_footer(text=FOOTER_TEXT)
@@ -244,10 +254,10 @@ async def help_command(interaction: discord.Interaction):
     embed = discord.Embed(
         title="📋 Comandos Disponibles",
         description="Lista de comandos que puedes usar con este bot:",
-        color=0xFFA500,  # Naranja
+        color=DEFAULT_COLOR,
         timestamp=datetime.now()
     )
-    embed.add_field(name="/precios", value="Muestra el precio de tokens en Okx", inline=False)
+    embed.add_field(name="/precios <token1> <token2> ...", value="Muestra el precio de tokens en Okx (ej: BTC-USDT ETH-USDT).", inline=False)
     embed.add_field(name="/calcular_sats", value="Calcula cuántos satoshis corresponden a un monto en USD.", inline=False)
     embed.add_field(name="/help", value="Muestra esta ayuda.", inline=False)
     embed.add_field(name="/factura", value = "Permite generar una nueva factura", inline = False)
@@ -255,6 +265,8 @@ async def help_command(interaction: discord.Interaction):
     embed.add_field(name = "/balance", value = "Muestra el balance actual de la wallet", inline = False)
     embed.add_field(name = "/historial_pagos", value = "Muestra el historial de pago de la wallet", inline = False)
     embed.add_field(name="/enviar_embed", value="Envia un embed personalizado a un canal (solo admin).", inline=False)
+    embed.add_field(name="/economy_balance", value="Muestra tu saldo en el sistema de economía.", inline=False)
+    embed.add_field(name="/transfer <usuario> <monto>", value="Transfiere saldo a otro usuario en el sistema de economía.", inline=False)
     embed.set_footer(text=FOOTER_TEXT)
     await interaction.response.send_message(embed=embed)
 
@@ -266,7 +278,7 @@ async def historial(interaction: discord.Interaction):
 
     embed = discord.Embed(
         title="📜 Historial de Pagos Recibidos",
-        color=0xFFA500,  # Naranja
+        color=DEFAULT_COLOR,
         timestamp=datetime.now()
     )
 
@@ -281,20 +293,44 @@ async def historial(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="enviar_embed", description="Envia un embed personalizado a un canal (solo admin)")
-@app_commands.describe(canal="Canal al que enviar el embed", titulo="Título del embed", descripcion="Descripción del embed")
-async def enviar_embed(interaction: discord.Interaction, canal: discord.TextChannel, titulo: str, descripcion: str):
+@app_commands.describe(canal="Canal al que enviar el embed",
+                     titulo="Título del embed",
+                     descripcion="Descripción del embed",
+                     color="Color del embed (hexadecimal, ej: FFA500)",
+                     imagen="URL de la imagen del embed",
+                     thumbnail="URL del thumbnail del embed")
+async def enviar_embed(interaction: discord.Interaction,
+                        canal: discord.TextChannel,
+                        titulo: str,
+                        descripcion: str,
+                        color: str = None,
+                        imagen: str = None,
+                        thumbnail: str = None):
     """Envia un embed personalizado a un canal."""
     if interaction.user.id != YOUR_DISCORD_ID:
         await interaction.response.send_message("❌ No tienes permiso para usar este comando.", ephemeral=True)
         return
 
+    embed_color = DEFAULT_COLOR
+    if color:
+        try:
+            embed_color = int(color, 16)
+        except ValueError:
+            await interaction.response.send_message("❌ El color hexadecimal no es válido.", ephemeral=True)
+            return
+
     embed = discord.Embed(
         title=titulo,
         description=descripcion,
-        color=0xFFA500,  # Naranja
+        color=embed_color,
         timestamp=datetime.now()
     )
     embed.set_footer(text=FOOTER_TEXT)
+
+    if imagen:
+        embed.set_image(url=imagen)
+    if thumbnail:
+        embed.set_thumbnail(url=thumbnail)
 
     try:
         await canal.send(embed=embed)
@@ -304,6 +340,31 @@ async def enviar_embed(interaction: discord.Interaction, canal: discord.TextChan
     except Exception as e:
         print(f"Error al enviar embed: {e}")
         await interaction.response.send_message(f"❌ Error al enviar el embed: {e}", ephemeral=True)
+
+@bot.tree.command(name="economy_balance", description="Muestra tu saldo en el sistema de economía")
+async def economy_balance(interaction: discord.Interaction):
+  """Muestra el saldo del usuario en el sistema de economía."""
+  user_id = interaction.user.id
+  await interaction.response.send_message(f"Tu saldo es: {user_balances[user_id]}")
+
+@bot.tree.command(name="transfer", description="Transfiere saldo a otro usuario")
+@app_commands.describe(usuario="Usuario a transferir", monto="Monto a transferir")
+async def transfer(interaction: discord.Interaction, usuario: discord.Member, monto: int):
+  """Transfiere saldo a otro usuario."""
+  sender_id = interaction.user.id
+  receiver_id = usuario.id
+
+  if monto <= 0:
+    await interaction.response.send_message("El monto debe ser mayor a 0.")
+    return
+
+  if user_balances[sender_id] < monto:
+    await interaction.response.send_message("No tienes suficiente saldo.")
+    return
+
+  user_balances[sender_id] -= monto
+  user_balances[receiver_id] += monto
+  await interaction.response.send_message(f"Transferiste {monto} a {usuario.name}.")
 
 # --- COMANDOS DEL ADMINISTRADOR ---
 @bot.command()
@@ -318,6 +379,30 @@ async def sync_commands(ctx):
     else:
         await ctx.send("No tienes permiso para usar este comando.")
 
+@bot.command()
+async def add_balance(ctx, member: discord.Member, amount: int):
+    """Añade saldo a un usuario (solo admin)."""
+    if ctx.author.id != YOUR_DISCORD_ID:
+        await ctx.send("No tienes permiso para usar este comando.")
+        return
+
+    user_balances[member.id] += amount
+    await ctx.send(f"Añadidos {amount} a {member.name}. Nuevo saldo: {user_balances[member.id]}")
+
+@bot.command()
+async def remove_balance(ctx, member: discord.Member, amount: int):
+    """Quita saldo a un usuario (solo admin)."""
+    if ctx.author.id != YOUR_DISCORD_ID:
+        await ctx.send("No tienes permiso para usar este comando.")
+        return
+
+    if user_balances[member.id] < amount:
+        await ctx.send("El usuario no tiene suficiente saldo.")
+        return
+
+    user_balances[member.id] -= amount
+    await ctx.send(f"Quitados {amount} a {member.name}. Nuevo saldo: {user_balances[member.id]}")
+
 # --- TAREA EN SEGUNDO PLANO PARA SINCRONIZAR COMANDOS ---
 @tasks.loop(seconds=SYNC_INTERVAL)
 async def auto_sync():
@@ -327,6 +412,36 @@ async def auto_sync():
         print("Comandos sincronizados automáticamente.")
     except Exception as e:
         print(f"Error al sincronizar comandos automáticamente: {e}")
+
+# --- EVENTOS ---
+@bot.event
+async def on_ready():
+    await bot.tree.sync()
+    print(f"✅ Bot conectado como: {bot.user}")
+    bot.loop.create_task(check_payments())
+    bot.loop.create_task(update_bot_presence())
+    auto_sync.start()
+
+@bot.event
+async def on_member_join(member):
+    """Envia un mensaje de bienvenida a los nuevos miembros."""
+    channel = bot.get_channel(WELCOME_CHANNEL_ID)
+    if channel is None:
+        print(f"Canal de bienvenida no encontrado: {WELCOME_CHANNEL_ID}")
+        return
+
+    embed = discord.Embed(
+        title=f"¡Bienvenido a {member.guild.name}!",
+        description=f"¡Hola {member.mention}! Esperamos que disfrutes tu tiempo aquí.",
+        color=DEFAULT_COLOR,
+        timestamp=datetime.now()
+    )
+    embed.set_thumbnail(url=member.avatar)  # Muestra el avatar del usuario
+    embed.set_image(url="https://i.imgur.com/YxDPyAH.gif") # Imagen de fondo
+
+    embed.set_footer(text=FOOTER_TEXT)
+
+    await channel.send(embed=embed)
 
 # --- DETECCIÓN DE FACTURAS LIGHTNING ---
 @bot.event
@@ -355,70 +470,11 @@ class ConfirmPayment(discord.ui.View):
             payload = {"out": True, "bolt11": self.invoice}
             try:
                 response = await bot.loop.run_in_executor(None, lambda: requests.post(f"{LNBITS_URL}/api/v1/payments", headers=headers, json=payload, timeout=10))
-                response.raise_for_status()  # Lanza una excepción para errores HTTP
+                response.raise_for_status()
                 data = response.json()
                 if "payment_hash" in data:
                     embed = discord.Embed(
                         title="Pago Confirmado",
                         description=f"El pago de la factura ha sido confirmado correctamente.",
-                        color=0x4CAF50,  # Verde
-                        timestamp=datetime.now()
-                    )
-                    embed.add_field(name="Hash del Pago", value=f"```{data['payment_hash']}```", inline=False)
-                    await interaction.response.send_message(embed=embed, ephemeral=True)
-                else:
-                    await interaction.response.send_message(f"Error al confirmar el pago: {data.get('detail', 'Error Desconocido')}", ephemeral=True)
-            except requests.exceptions.RequestException as e:
-                print(f"Error al confirmar el pago: {e}")
-                await interaction.response.send_message(f"Error al confirmar el pago: {e}", ephemeral=True)
-        else:
-            await interaction.response.send_message("Solo el administrador puede confirmar este pago.", ephemeral=True)
-
-# --- TAREAS EN SEGUNDO PLANO ---
-async def check_payments():
-    """Verifica depósitos entrantes en segundo plano."""
-    await bot.wait_until_ready()
-    last_checked = None
-
-    while not bot.is_closed():
-        try:
-            headers = {'X-Api-Key': INVOICE_KEY}
-            response = requests.get(f"{LNBITS_URL}/api/v1/payments", headers=headers, timeout=10)
-            pagos = response.json()
-
-            for payment in pagos:
-                if payment["pending"] is False and payment.get("incoming", False):
-                    if payment["payment_hash"] != last_checked:  # Solo procesamos nuevos pagos
-                        last_checked = payment["payment_hash"]
-                        await send_deposit_notification(payment)
-        except Exception as e:
-            print(f"Error verificando pagos: {e}")
-
-        await asyncio.sleep(25)
-
-# --- EVENTOS ---
-@bot.event
-async def on_ready():
-    await bot.tree.sync()
-    print(f"✅ Bot conectado como: {bot.user}")
-    bot.loop.create_task(check_payments())
-    bot.loop.create_task(update_bot_presence())
-    auto_sync.start()  # Inicia la tarea de sincronización automática
-
-# --- INICIAR FLASK ---
-app = Flask(__name__)
-
-@app.route("/")
-def hello():
-    return "Lightning Wallet Bot Backend is Running!"
-
-def run_flask():
-    app.run(host="0.0.0.0", port=5000)
-
-# --- INICIAR EL BOT ---
-if __name__ == "__main__":
-    import threading
-    flask_thread = threading.Thread(target=run_flask)
-    flask_thread.daemon = True
-    flask_thread.start()
-    bot.run(TOKEN)
+                        color=0x4CAF50,
+                        timestamp
