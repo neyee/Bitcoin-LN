@@ -10,7 +10,7 @@ from discord.ext import commands
 from discord import app_commands
 from flask import Flask  # Importa Flask directamente aquí
 import threading
-
+from lightning import decode
 
 # --- CONFIGURACIÓN ---
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -19,6 +19,7 @@ INVOICE_KEY = os.getenv("INVOICE_KEY")
 ADMIN_KEY = os.getenv("ADMIN_KEY")
 FOOTER_TEXT = os.getenv("FOOTER_TEXT", "⚡ Lightning Wallet Bot")
 YOUR_DISCORD_ID = 865597179145486366
+OKX_API_URL = "https://www.okx.com/api/v5/market/ticker?instId="  # Formato: BTC-USDT
 
 # --- INICIALIZACIÓN DEL BOT ---
 intents = discord.Intents.default()
@@ -83,6 +84,19 @@ async def update_bot_presence():
         if btc_price:
             await bot.change_presence(activity=discord.Game(name=f"BTC: ${btc_price:,.2f}"))
         await asyncio.sleep(60)
+
+async def get_okx_price(instrument_id: str):
+    """Obtiene el precio de un instrumento de OKX."""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{OKX_API_URL}{instrument_id}") as resp:
+                data = await resp.json()
+                if data["code"] == "0":
+                    return data["data"][0]["last"]  # 'last' es el precio
+                else:
+                    return None
+    except:
+        return None
 
 # --- COMANDOS ---
 @bot.tree.command(name="balance", description="Muestra el saldo actual de la billetera")
@@ -178,21 +192,30 @@ async def generar_factura(interaction: discord.Interaction, monto: int, descripc
         print(f"Error en generar_factura: {e}")
         await interaction.response.send_message("Error interno al generar la factura.", ephemeral=True)
 
-@bot.tree.command(name="estado", description="Muestra el estado del bot")
-async def estado(interaction: discord.Interaction):
-    """Muestra el estado actual del bot."""
-    btc_price = await get_btc_price()
+@bot.tree.command(name="precios", description="Muestra los precios de diferentes tokens desde OKX")
+async def precios(interaction: discord.Interaction):
+    """Muestra los precios de diferentes tokens desde OKX."""
+    tokens = ["BTC-USDT", "ETH-USDT", "LTC-USDT"]  # Agrega más tokens aquí
+    prices = {}
+
+    for token in tokens:
+        price = await get_okx_price(token)
+        if price:
+            prices[token] = price
+
+    if not prices:
+        await interaction.response.send_message("No se pudieron obtener los precios de los tokens.", ephemeral=True)
+        return
+
     embed = discord.Embed(
-        title="📡 Estado del Bot",
-        description="El bot está activo y funcionando.",
+        title="💰 Precios de Tokens (OKX)",
         color=0xFFA500,  # Naranja
         timestamp=datetime.now()
     )
-    embed.add_field(
-        name="Precio BTC actual",
-        value=f"${btc_price:,.2f} USD" if btc_price else "No disponible",
-        inline=False
-    )
+
+    for token, price in prices.items():
+        embed.add_field(name=token, value=f"${price}", inline=True)
+
     embed.set_footer(text=FOOTER_TEXT)
     await interaction.response.send_message(embed=embed)
 
@@ -224,13 +247,14 @@ async def help_command(interaction: discord.Interaction):
         color=0xFFA500,  # Naranja
         timestamp=datetime.now()
     )
-    embed.add_field(name="/estado", value="Muestra el estado del bot y el precio actual de BTC.", inline=False)
+    embed.add_field(name="/precios", value="Muestra el precio de tokens en Okx", inline=False)
     embed.add_field(name="/calcular_sats", value="Calcula cuántos satoshis corresponden a un monto en USD.", inline=False)
     embed.add_field(name="/help", value="Muestra esta ayuda.", inline=False)
     embed.add_field(name="/factura", value = "Permite generar una nueva factura", inline = False)
     embed.add_field(name = "/retirar", value = "Comando exclusivo para administradores", inline = False)
     embed.add_field(name = "/balance", value = "Muestra el balance actual de la wallet", inline = False)
     embed.add_field(name = "/historial_pagos", value = "Muestra el historial de pago de la wallet", inline = False)
+    embed.add_field(name="/enviar_embed", value="Envia un embed personalizado a un canal (solo admin).", inline=False)
     embed.set_footer(text=FOOTER_TEXT)
     await interaction.response.send_message(embed=embed)
 
@@ -255,6 +279,31 @@ async def historial(interaction: discord.Interaction):
 
     embed.set_footer(text=FOOTER_TEXT)
     await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="enviar_embed", description="Envia un embed personalizado a un canal (solo admin)")
+@app_commands.describe(canal="Canal al que enviar el embed", titulo="Título del embed", descripcion="Descripción del embed")
+async def enviar_embed(interaction: discord.Interaction, canal: discord.TextChannel, titulo: str, descripcion: str):
+    """Envia un embed personalizado a un canal."""
+    if interaction.user.id != YOUR_DISCORD_ID:
+        await interaction.response.send_message("❌ No tienes permiso para usar este comando.", ephemeral=True)
+        return
+
+    embed = discord.Embed(
+        title=titulo,
+        description=descripcion,
+        color=0xFFA500,  # Naranja
+        timestamp=datetime.now()
+    )
+    embed.set_footer(text=FOOTER_TEXT)
+
+    try:
+        await canal.send(embed=embed)
+        await interaction.response.send_message(f"✅ Embed enviado a {canal.mention} correctamente.", ephemeral=True)
+    except discord.Forbidden:
+        await interaction.response.send_message("❌ No tengo permiso para enviar mensajes en ese canal.", ephemeral=True)
+    except Exception as e:
+        print(f"Error al enviar embed: {e}")
+        await interaction.response.send_message(f"❌ Error al enviar el embed: {e}", ephemeral=True)
 
 # --- COMANDOS DEL ADMINISTRADOR ---
 @bot.command()
