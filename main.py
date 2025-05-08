@@ -10,7 +10,6 @@ from discord.ext import commands
 from discord import app_commands
 from flask import Flask  # Importa Flask directamente aquí
 import threading
-from lightning import decode
 
 # --- CONFIGURACIÓN ---
 TOKEN = os.getenv("DISCORD_TOKEN")
