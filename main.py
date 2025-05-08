@@ -18,8 +18,8 @@ LNBITS_URL = os.getenv("LNBITS_URL", "https://legend.lnbits.com").rstrip('/')
 INVOICE_KEY = os.getenv("INVOICE_KEY")
 ADMIN_KEY = os.getenv("ADMIN_KEY")
 FOOTER_TEXT = os.getenv("FOOTER_TEXT", "⚡ Lightning Wallet Bot")
-YOUR_DISCORD_ID = 865597179145486366
-OKX_API_URL = "https://www.okx.com/api/v5/market/ticker?instId="  # Formato: BTC-USDT
+YOUR_DISCORD_ID = int(os.getenv("YOUR_DISCORD_ID", 0))
+OKX_API_URL = os.getenv("OKX_API_URL", "https://www.okx.com/api/v5/market/ticker?instId=")  # Formato: BTC-USDT
 
 # --- INICIALIZACIÓN DEL BOT ---
 intents = discord.Intents.default()
