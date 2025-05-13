@@ -138,6 +138,7 @@ async def update_bot_presence():
 
 # --- COMANDOS ---
 @tree.command(name="tip", description="Da una propina a otro usuario")
+@app_commands.describe(usuario="Usuario a quien dar propina", monto="Monto en sats", mensaje="Mensaje opcional")
 async def dar_propina(interaction: discord.Interaction, usuario: discord.Member, monto: int, mensaje: str = "¡Aquí tienes tu propina!"):
     """Da una propina a otro usuario."""
     pagador_id = interaction.user.id
@@ -282,8 +283,9 @@ async def depositar(interaction: discord.Interaction, monto: int):
 async def retirar(interaction: discord.Interaction, factura: str):
     """Retira fondos a una factura Lightning."""
     user_id = interaction.user.id
+    balance = user_balances.get(user_id, 0) # Obtener el balance actual
 
-    if user_id not in user_balances:
+    if user_id not in user_balances or balance <= 0:
         embed = discord.Embed(
             title="❌ Error",
             description="No tienes fondos disponibles para retirar.",
@@ -296,8 +298,7 @@ async def retirar(interaction: discord.Interaction, factura: str):
         invoice_details = await get_invoice_details(factura)
         monto = invoice_details["amount"] / 1000
 
-        # Check against balance
-        if user_balances.get(user_id, 0) < monto:
+        if monto > balance: # Verificar que el monto a retirar no sea mayor que el balance
             embed = discord.Embed(
                 title="❌ Error",
                 description="No tienes suficientes fondos para retirar este monto.",
@@ -326,7 +327,7 @@ async def retirar(interaction: discord.Interaction, factura: str):
 
         embed = discord.Embed(
             title="💨 Retiro Exitoso",
-            description=f"Retiro de **{monto} sats** procesado correctamente.",
+            description=f"Retiro de **{monto} sats** procesado correctamente. Nuevo balance: **{user_balances.get(user_id,0)} sats**",
             color=discord.Color.green()
         )
         embed.add_field(name="Hash del Pago", value=f"```{data['payment_hash']}```", inline=False)
