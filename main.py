@@ -7,12 +7,12 @@ import aiohttp
 from io import BytesIO
 from datetime import datetime
 from discord.ext import commands
-from discord.ext.commands import has_permissions, MissingPermissions  # Para permisos
-from flask import Flask
+from discord.ext.commands import has_permissions
+from flask import Flask, render_template_string
 import threading
 import json
-import traceback  # Para obtener información detallada de los errores
-import random  # Para la ruleta
+import traceback
+import random
 
 # --- CONFIGURACIÓN ---
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -20,25 +20,30 @@ LNBITS_URL = os.getenv("LNBITS_URL", "https://legend.lnbits.com").rstrip('/')
 INVOICE_KEY = os.getenv("INVOICE_KEY")
 ADMIN_KEY = os.getenv("ADMIN_KEY")
 FOOTER_TEXT = os.getenv("FOOTER_TEXT", "⚡ Lightning Wallet Bot")
-YOUR_DISCORD_ID = int(os.getenv("YOUR_DISCORD_ID", "0")) # ID del Administrador
-DATA_FILE = "data.json"  # Nombre del archivo para guardar los datos
-ROULETTE_MIN_BET = 10  # Apuesta mínima para la ruleta
-ROULETTE_MAX_BET = 100 # Apuesta máxima
+YOUR_DISCORD_ID = int(os.getenv("YOUR_DISCORD_ID", "0"))
+DATA_FILE = "data.json"
 
 # --- INICIALIZACIÓN DEL BOT ---
 intents = discord.Intents.default()
 intents.message_content = True
-intents.members = True  # Necesario para obtener información de los miembros
+intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
-user_balances = {}  # Diccionario para almacenar los saldos de los usuarios
+user_balances = {}
 payment_history = []
 
-# --- INICIALIZACIÓN DE FLASK ---
+# --- INICIAR FLASK ---
 app = Flask(__name__)
+
+@app.route("/")
+def hello():
+    return "Lightning Wallet Bot Backend is Running!"
+
+@app.route("/test")
+def test_page():
+    return "<H1> Flask is Working</H1>"
 
 # --- FUNCIONES AUXILIARES ---
 def generate_lightning_qr(lightning_invoice):
-    """Genera un QR para una factura Lightning."""
     qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=8, border=4)
     qr.add_data(lightning_invoice)
     qr.make(fit=True)
@@ -48,29 +53,24 @@ def generate_lightning_qr(lightning_invoice):
     buffer.seek(0)
     return buffer
 
-
 async def get_btc_price():
-    """Obtiene el precio actual de BTC en USD."""
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(
-                    "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd") as resp:
+            async with session.get("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd") as resp:
                 data = await resp.json()
                 return data["bitcoin"]["usd"]
     except Exception as e:
         print(f"Error al obtener el precio de BTC: {e}")
         return None
 
-
 async def check_payment_status(payment_hash):
-    """Verifica el estado del pago usando la API de LNbits."""
-    headers = {'X-Api-Key': INVOICE_KEY}  # Usar Invoice Key para consultar el estado
+    headers = {'X-Api-Key': INVOICE_KEY}
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{LNBITS_URL}/api/v1/payments/{payment_hash}", headers=headers) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    return not data["pending"]  # Devuelve True si el pago NO está pendiente (completado)
+                    return not data["pending"]
                 else:
                     print(f"Error al obtener el estado del pago: {resp.status}")
                     return False
@@ -78,16 +78,14 @@ async def check_payment_status(payment_hash):
         print(f"Error al conectar con LNbits: {e}")
         return False
 
-
 async def get_invoice_details(invoice):
-    """Obtiene los detalles de la factura (incluyendo el monto) desde LNbits."""
     headers = {'X-Api-Key': ADMIN_KEY}
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(f"{LNBITS_URL}/api/v1/payments/{invoice}", headers=headers) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    return {"amount": data["details"]["amount"]}  # Devuelvo solo el monto
+                    return {"amount": data["details"]["amount"]}
                 else:
                     print(f"Error al obtener detalles de la factura: {resp.status}")
                     return None
@@ -95,9 +93,7 @@ async def get_invoice_details(invoice):
         print(f"Error al conectar con LNbits: {e}")
         return None
 
-
 def load_data():
-    """Carga los datos desde el archivo JSON."""
     global user_balances
     try:
         with open(DATA_FILE, "r") as f:
@@ -110,9 +106,7 @@ def load_data():
         print(f"Error al cargar los datos: {e}\n{traceback.format_exc()}\nSe inicializarán los saldos.")
         user_balances = {}
 
-
 def save_data():
-    """Guarda los datos en el archivo JSON."""
     try:
         with open(DATA_FILE, "w") as f:
             json.dump(user_balances, f)
@@ -120,9 +114,7 @@ def save_data():
     except Exception as e:
         print(f"Error al guardar los datos: {e}\n{traceback.format_exc()}")
 
-
 async def send_deposit_notification(payment):
-    """Envía notificación al admin sobre un depósito."""
     user_memo = payment.get("memo", "Sin descripción")
     sats = payment["amount"] / 1000
     usd = 0
@@ -145,12 +137,10 @@ async def send_deposit_notification(payment):
 
     payment_history.append({"memo": user_memo, "sats": sats, "usd": usd})
 
-
 # --- PRESENCIA DEL BOT ---
 async def update_bot_presence():
     """Actualiza la presencia del bot con un mensaje de ayuda."""
     await bot.change_presence(activity=discord.Game(name="!help"))
-
 
 # --- COMANDOS ---
 @bot.command(name="tip")
@@ -292,7 +282,7 @@ async def depositar(ctx, monto: int):
         payment_hash = data.get("payment_hash")
 
         if not invoice:
-             embed = discord.Embed(
+            embed = discord.Embed(
                 title="❌ Error",
                 description="Error al generar la factura. Inténtalo de nuevo.",
                 color=discord.Color.red()
@@ -312,7 +302,6 @@ async def depositar(ctx, monto: int):
         embed.set_footer(text=FOOTER_TEXT)  # Añadir Footer
 
         await ctx.send(embed=embed, file=file)
-
         await ctx.send(f"```{invoice}```")  # Enviar la factura sin formato
 
         # Verificar estado del pago
@@ -333,7 +322,7 @@ async def depositar(ctx, monto: int):
             await ctx.send(embed=embed)
 
         else:
-             embed = discord.Embed(
+            embed = discord.Embed(
                 title="❌ Error",
                 description="El pago no se ha recibido. Inténtalo de nuevo.",
                 color=discord.Color.red()
@@ -520,6 +509,17 @@ async def ayuda(ctx):
     embed.set_footer(text=FOOTER_TEXT)
     await ctx.send(embed=embed)
 
+# --- Comandos Globales ---
+@bot.command()
+@commands.guild_only()
+async def sync(ctx: commands.Context):
+    """Sincroniza los comandos slash."""
+    if ctx.author.id == YOUR_DISCORD_ID:
+        await bot.tree.sync()
+        await ctx.send("Comandos sincronizados globalmente.")
+        return
+    await ctx.send("No tienes permisos para usar este comando.")
+
 # --- TAREAS EN SEGUNDO PLANO ---
 async def check_payments():
     """Verifica depósitos entrantes en segundo plano."""
@@ -538,4 +538,11 @@ async def check_payments():
                         last_checked = payment["payment_hash"]
                         user_memo = payment.get("memo", "Sin descripción")
                         monto = payment["amount"] / 1000
-    
+                        # Extraer el nombre del usuario del memo
+                        if "Depósito de" in user_memo:
+                            user_name = user_memo.replace("Depósito de ", "")
+                            #Buscarlo por nombre y discriminador
+                            user = discord.utils.get(bot.users, name=user_name)
+
+                            if user:
+                             
