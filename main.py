@@ -160,11 +160,21 @@ async def dar_propina(ctx, usuario: discord.Member, monto: int, *, mensaje: str 
     receptor_id = usuario.id
 
     if pagador_id == receptor_id:
-        await ctx.send("No puedes darte propina a ti mismo.")
+        embed = discord.Embed(
+            title="❌ Error",
+            description="¡No puedes darte propina a ti mismo!",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
         return
 
     if monto <= 0:
-        await ctx.send("El monto de la propina debe ser mayor que cero.")
+        embed = discord.Embed(
+            title="❌ Error",
+            description="El monto de la propina debe ser mayor que cero.",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
         return
 
     if pagador_id not in user_balances or user_balances.get(pagador_id, 0) < monto:
@@ -184,8 +194,8 @@ async def dar_propina(ctx, usuario: discord.Member, monto: int, *, mensaje: str 
     save_data()  # Guardar los datos después de la transacción
 
     embed = discord.Embed(
-        title="🎁 Propina Enviada",
-        description=f"{ctx.author.mention} ha dado una propina de {monto} sats a {usuario.mention}.",
+        title="🎁 ¡Propina Enviada!",
+        description=f"**{ctx.author.mention}** ha dado una propina de **{monto} sats** a **{usuario.mention}**.",
         color=discord.Color.green()
     )
     embed.add_field(name="Mensaje", value=mensaje, inline=False)
@@ -201,7 +211,7 @@ async def ver_mi_balance(ctx):
     balance = user_balances.get(user_id, 0)
     embed = discord.Embed(
         title="💰 Tu Balance",
-        description=f"Tu balance actual es de {balance} sats.",
+        description=f"Tu balance actual es de **{balance} sats**.",
         color=discord.Color.blue()
     )
     embed.set_footer(text=FOOTER_TEXT)
@@ -214,11 +224,21 @@ async def enviar_fondos(ctx, usuario: discord.Member, monto: int):
     receptor_id = usuario.id
 
     if pagador_id == receptor_id:
-        await ctx.send("No puedes enviarte fondos a ti mismo.")
+        embed = discord.Embed(
+            title="❌ Error",
+            description="No puedes enviarte fondos a ti mismo.",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
         return
 
     if monto <= 0:
-        await ctx.send("El monto debe ser mayor a cero.")
+        embed = discord.Embed(
+            title="❌ Error",
+            description="El monto debe ser mayor a cero.",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
         return
 
     if pagador_id not in user_balances or user_balances.get(pagador_id, 0) < monto:
@@ -239,7 +259,7 @@ async def enviar_fondos(ctx, usuario: discord.Member, monto: int):
 
     embed = discord.Embed(
         title="💸 Transferencia Exitosa",
-        description=f"Has enviado {monto} sats a {usuario.mention}.",
+        description=f"Has enviado **{monto} sats** a **{usuario.mention}**.",
         color=discord.Color.green()
     )
     embed.set_footer(text=FOOTER_TEXT)
@@ -254,7 +274,12 @@ async def depositar(ctx, monto: int):
     user_name = ctx.author.name  # Obtener el nombre de usuario
 
     if monto <= 0:
-        await ctx.send("El monto del depósito debe ser mayor que cero.")
+        embed = discord.Embed(
+            title="❌ Error",
+            description="El monto del depósito debe ser mayor que cero.",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
         return
 
     try:
@@ -267,7 +292,12 @@ async def depositar(ctx, monto: int):
         payment_hash = data.get("payment_hash")
 
         if not invoice:
-            await ctx.send("Error al generar la factura. Inténtalo de nuevo.")
+             embed = discord.Embed(
+                title="❌ Error",
+                description="Error al generar la factura. Inténtalo de nuevo.",
+                color=discord.Color.red()
+            )
+            await ctx.send(embed=embed)
             return
 
         qr_code = generate_lightning_qr(invoice)
@@ -275,14 +305,15 @@ async def depositar(ctx, monto: int):
 
         embed = discord.Embed(
             title="⚡ Factura Lightning para Depósito",
-            description=f"Escanea el código QR o copia la factura para depositar {monto} sats.",
+            description=f"Escanea el código QR o copia la factura para depositar **{monto} sats**.",
             color=discord.Color.orange()  # Color naranja para la factura
         )
         embed.set_image(url="attachment://qr_invoice.png")  # Añadir imagen
         embed.set_footer(text=FOOTER_TEXT)  # Añadir Footer
 
         await ctx.send(embed=embed, file=file)
-        await ctx.send(invoice)  # Enviar la factura sin formato
+
+        await ctx.send(f"```{invoice}```")  # Enviar la factura sin formato
 
         # Verificar estado del pago
         pago_status = await check_payment_status(payment_hash)
@@ -295,19 +326,23 @@ async def depositar(ctx, monto: int):
             save_data()  # Guardar los datos después del depósito
             embed = discord.Embed(
                 title="✅ Depósito Exitoso",
-                description=f"¡Depósito de {monto} sats realizado correctamente!",
+                description=f"¡Depósito de **{monto} sats** realizado correctamente!",
                 color=discord.Color.green()
             )
             embed.set_footer(text=FOOTER_TEXT)
             await ctx.send(embed=embed)
 
         else:
-            await ctx.send("El pago no se ha recibido. Inténtalo de nuevo.")
+             embed = discord.Embed(
+                title="❌ Error",
+                description="El pago no se ha recibido. Inténtalo de nuevo.",
+                color=discord.Color.red()
+            )
+            await ctx.send(embed=embed)
 
     except Exception as e:
         print(f"Error en el comando depositar: {e}\n{traceback.format_exc()}")
         await ctx.send("Error interno al generar la factura.")
-
 
 @bot.command(name="retirar")
 async def retirar(ctx, factura: str):
@@ -315,7 +350,12 @@ async def retirar(ctx, factura: str):
     user_id = ctx.author.id
 
     if user_id not in user_balances:
-        await ctx.send("No tienes fondos disponibles para retirar.")
+        embed = discord.Embed(
+            title="❌ Error",
+            description="No tienes fondos disponibles para retirar.",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
         return
 
     try:
@@ -346,7 +386,7 @@ async def retirar(ctx, factura: str):
 
         embed = discord.Embed(
             title="💨 Retiro Exitoso",
-            description=f"Retiro de {monto} sats procesado correctamente.",
+            description=f"Retiro de **{monto} sats** procesado correctamente.",
             color=discord.Color.green()
         )
         embed.add_field(name="Hash del Pago", value=f"```{data['payment_hash']}```", inline=False)
@@ -364,15 +404,30 @@ async def retirar(ctx, factura: str):
 async def airdrop(ctx, monto: int, *usuarios: discord.Member):
     """Envía un airdrop de sats a varios usuarios."""
     if ctx.author.id != YOUR_DISCORD_ID: #Proteccion extra
-        await ctx.send("No tienes permiso para usar este comando.")
+        embed = discord.Embed(
+            title="❌ Error",
+            description="No tienes permiso para usar este comando.",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
         return
 
     if monto <= 0:
-        await ctx.send("El monto del airdrop debe ser mayor que cero.")
+        embed = discord.Embed(
+            title="❌ Error",
+            description="El monto del airdrop debe ser mayor que cero.",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
         return
 
     if not usuarios:
-        await ctx.send("Debes mencionar al menos un usuario para el airdrop.")
+        embed = discord.Embed(
+            title="❌ Error",
+            description="Debes mencionar al menos un usuario para el airdrop.",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
         return
 
     try:
@@ -384,29 +439,44 @@ async def airdrop(ctx, monto: int, *usuarios: discord.Member):
             print(f"Airdrop: Se enviaron {monto} sats a {usuario.name}.")
             embed = discord.Embed(
                 title="✨ Airdrop Recibido",
-                description=f"Has recibido {monto} sats de airdrop.",
+                description=f"Has recibido **{monto} sats** de airdrop.",
                 color=discord.Color.purple()
             )
             embed.set_footer(text=FOOTER_TEXT)
             await usuario.send(embed=embed)
 
         save_data()  # Guardar los datos después del airdrop
-        await ctx.send(f"Airdrop de {monto} sats enviado a {len(usuarios)} usuarios.")
+        embed = discord.Embed(
+            title="✅ Airdrop Exitoso",
+            description=f"Airdrop de **{monto} sats** enviado a **{len(usuarios)}** usuarios.",
+            color=discord.Color.green()
+        )
+        await ctx.send(embed=embed)
 
     except Exception as e:
         print(f"Error en el comando airdrop: {e}\n{traceback.format_exc()}")
         await ctx.send("Error interno al procesar el airdrop.")
 
-@bot.command(name="addfunds")
+@bot.command(name="addcash")
 @has_permissions(administrator=True)  # Restringir el comando a administradores
 async def agregar_fondos(ctx, usuario: discord.Member, monto: int):
     """Agrega fondos a un usuario (solo para administradores)."""
     if ctx.author.id != YOUR_DISCORD_ID: #Proteccion extra
-        await ctx.send("No tienes permiso para usar este comando.")
+        embed = discord.Embed(
+            title="❌ Error",
+            description="No tienes permiso para usar este comando.",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
         return
 
     if monto <= 0:
-        await ctx.send("El monto a agregar debe ser mayor que cero.")
+        embed = discord.Embed(
+            title="❌ Error",
+            description="El monto a agregar debe ser mayor que cero.",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
         return
 
     try:
@@ -418,7 +488,7 @@ async def agregar_fondos(ctx, usuario: discord.Member, monto: int):
 
         embed = discord.Embed(
             title="💰 Fondos Agregados",
-            description=f"Se han agregado {monto} sats a {usuario.mention}.",
+            description=f"Se han agregado **{monto} sats** a **{usuario.mention}**.",
             color=discord.Color.green()
         )
         embed.set_footer(text=FOOTER_TEXT)
@@ -430,69 +500,21 @@ async def agregar_fondos(ctx, usuario: discord.Member, monto: int):
         print(f"Error en el comando agregar_fondos: {e}\n{traceback.format_exc()}")
         await ctx.send("Error interno al agregar los fondos.")
 
-@bot.command(name="roulette")
-async def roulette(ctx, monto: int):
-    """Juega a la ruleta."""
-    user_id = ctx.author.id
-
-    if monto < ROULETTE_MIN_BET or monto > ROULETTE_MAX_BET:
-        await ctx.send(f"La apuesta debe estar entre {ROULETTE_MIN_BET} y {ROULETTE_MAX_BET} sats.")
-        return
-
-    if user_id not in user_balances or user_balances.get(user_id, 0) < monto:
-        embed = discord.Embed(
-            title="❌ Error",
-            description="No tienes fondos suficientes para jugar a la ruleta.",
-            color=discord.Color.red()
-        )
-        await ctx.send(embed=embed)
-        return
-
-    try:
-        user_balances[user_id] -= monto  # Restar la apuesta inicial
-        save_data()
-
-        winning_number = random.randint(0, 36)  # Generar un número ganador aleatorio
-
-        if winning_number == 0:
-            prize = monto * 14
-        else:
-            prize = monto * 2
-
-        user_balances[user_id] += prize  # Sumar la ganancia
-        save_data()
-
-        embed = discord.Embed(
-            title="🎡 Ruleta",
-            description=f"El número ganador es **{winning_number}**.\nHas ganado **{prize}** sats!",
-            color=discord.Color.green()
-        )
-        embed.add_field(name="Nuevo Balance", value=f"{user_balances[user_id]} sats", inline=False)
-        embed.set_footer(text=FOOTER_TEXT)
-        await ctx.send(embed=embed)
-
-        print(f"Ruleta: {ctx.author.name} apostó {monto} y ganó {prize} sats.")
-
-    except Exception as e:
-        print(f"Error en el comando ruleta: {e}\n{traceback.format_exc()}")
-        await ctx.send("Error interno al jugar a la ruleta.")
-
 @bot.command(name="help")
 async def ayuda(ctx):
     """Muestra la lista de comandos disponibles."""
     embed = discord.Embed(
         title="Comandos Disponibles",
-        description="Lista de comandos que puedes usar:",
+        description="Aquí tienes una lista de los comandos que puedes usar:",
         color=discord.Color.blue()
     )
-    embed.add_field(name="!bal", value="Muestra tu balance actual.", inline=False)
-    embed.add_field(name="!send @usuario monto", value="Envía fondos a otro usuario.", inline=False)
-    embed.add_field(name="!tip @usuario monto [mensaje]", value="Da una propina a otro usuario.", inline=False)
+    embed.add_field(name="!bal", value="Muestra tu balance actual.", inline=True)
+    embed.add_field(name="!send @usuario monto", value="Envía fondos a otro usuario.", inline=True)
+    embed.add_field(name="!tip @usuario monto [mensaje]", value="Da una propina a otro usuario.", inline=True)
     embed.add_field(name="!depositar monto", value="Genera una factura para depositar fondos.", inline=False)
     embed.add_field(name="!retirar factura", value="Retira fondos a una factura Lightning.", inline=False)
-    embed.add_field(name="!roulette monto", value="Juega a la ruleta (apuesta entre 10 y 100 sats).", inline=False)
     if ctx.author.id == YOUR_DISCORD_ID:
-        embed.add_field(name="!addfunds @usuario monto", value="[Admin] Agrega fondos a un usuario.", inline=False)
+        embed.add_field(name="!addcash @usuario monto", value="[Admin] Agrega fondos a un usuario.", inline=False)
         embed.add_field(name="!airdrop monto @usuario1 @usuario2 ...", value="[Admin] Envía un airdrop a varios usuarios.", inline=False)
 
     embed.set_footer(text=FOOTER_TEXT)
@@ -516,11 +538,4 @@ async def check_payments():
                         last_checked = payment["payment_hash"]
                         user_memo = payment.get("memo", "Sin descripción")
                         monto = payment["amount"] / 1000
-                        # Extraer el nombre del usuario del memo
-                        if "Depósito de" in user_memo:
-                            user_name = user_memo.replace("Depósito de ", "")
-                            #Buscarlo por nombre y discriminador
-                            user = discord.utils.get(bot.users, name=user_name)
-
-                            if user:
-                                user_id
+    
