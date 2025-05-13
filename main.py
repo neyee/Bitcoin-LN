@@ -277,7 +277,7 @@ async def depositar(interaction: discord.Interaction, monto: int):
         print(f"Error en el comando depositar: {e}\n{traceback.format_exc()}")
         await interaction.response.send_message("Error interno al generar la factura.")
 
-@tree.command(name="retirar", description = "Retira tus sats de la wallet a una factura lightning")
+@tree.command(name="retirar", description = "Retira tus sats a una factura lightning")
 @app_commands.describe(factura = "Ingresa la factura")
 async def retirar(interaction: discord.Interaction, factura: str):
     """Retira fondos a una factura Lightning."""
@@ -296,6 +296,7 @@ async def retirar(interaction: discord.Interaction, factura: str):
         invoice_details = await get_invoice_details(factura)
         monto = invoice_details["amount"] / 1000
 
+        # Check against balance
         if user_balances.get(user_id, 0) < monto:
             embed = discord.Embed(
                 title="❌ Error",
@@ -311,7 +312,12 @@ async def retirar(interaction: discord.Interaction, factura: str):
         data = response.json()
 
         if "payment_hash" not in data:
-            await interaction.response.send_message(f"Error al procesar el retiro: {data.get('detail', 'Desconocido')}")
+            embed = discord.Embed(
+                title="❌ Error",
+                description=f"Error al procesar el retiro: {data.get('detail', 'Desconocido')}",
+                color=discord.Color.red()
+            )
+            await interaction.response.send_message(embed=embed)
             return
 
         # Restar saldo al usuario
@@ -393,6 +399,45 @@ async def ayuda(interaction: discord.Interaction):
 
     embed.set_footer(text=FOOTER_TEXT)
     await interaction.response.send_message(embed=embed, ephemeral = True)
+
+# --- TAREAS EN SEGUNDO PLANO ---
+async def check_payments():
+    """Verifica depósitos entrantes en segundo plano."""
+    await bot.wait_until_ready()
+    last_checked = None
+
+    while not bot.is_closed():
+        try:
+            headers = {'X-Api-Key': INVOICE_KEY}
+            response = requests.get(f"{LNBITS_URL}/api/v1/payments", headers=headers, timeout=10)
+            pagos = response.json()
+
+            for payment in pagos:
+                if payment["pending"] is False and payment.get("incoming", False):
+                    if payment["payment_hash"] != last_checked:  # Solo procesamos nuevos pagos
+                        last_checked = payment["payment_hash"]
+                        user_memo = payment.get("memo", "Sin descripción")
+                        monto = payment["amount"] / 1000
+                        # Extraer el nombre del usuario del memo
+                        if "Depósito de" in user_memo:
+                            user_name = user_memo.replace("Depósito de ", "")
+                            #Buscarlo por nombre y discriminador
+                            user = discord.utils.get(bot.users, name=user_name)
+
+                            if user:
+                                user_id = user.id
+                                if user_id not in user_balances:
+                                    user_balances[user_id] = 0
+                                user_balances[user_id] += monto
+                                print(f"Acreditados {monto} sats a {user_name} (ID: {user_id}).")
+                                save_data()  # Guardar tras acreditación automatica
+                            else:
+                                print(f"No se pudo encontrar el usuario {user_name}.")
+
+        except Exception as e:
+            print(f"Error verificando pagos: {e}\n{traceback.format_exc()}")
+
+        await asyncio.sleep(25)
 
 # --- EVENTOS ---
 @bot.event
