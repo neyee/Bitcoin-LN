@@ -22,8 +22,6 @@ ADMIN_KEY = os.getenv("ADMIN_KEY")
 FOOTER_TEXT = os.getenv("FOOTER_TEXT", "⚡ Lightning Wallet Bot")
 YOUR_DISCORD_ID = int(os.getenv("YOUR_DISCORD_ID", "0"))
 DATA_FILE = "data.json"
-ROULETTE_MIN_BET = 10
-ROULETTE_MAX_BET = 100
 
 # --- INICIALIZACIÓN DEL BOT ---
 intents = discord.Intents.default()
@@ -139,7 +137,7 @@ async def update_bot_presence():
 # --- COMANDOS ---
 @tree.command(name="tip", description="Da una propina a otro usuario")
 @app_commands.describe(usuario="Usuario a quien dar propina", monto="Monto en sats", mensaje="Mensaje opcional")
-async def dar_propina(interaction: discord.Interaction, usuario: discord.Member, monto: int, mensaje: str = "¡Aquí tienes tu propina!"):
+async def dar_propina(interaction: discord.Interaction, usuario: discord.Member, monto: int, *, mensaje: str = "¡Aquí tienes tu propina!"):
     """Da una propina a otro usuario."""
     pagador_id = interaction.user.id
     receptor_id = usuario.id
@@ -201,6 +199,57 @@ async def ver_mi_balance(interaction: discord.Interaction):
     )
     embed.set_footer(text=FOOTER_TEXT)
     await interaction.response.send_message(embed=embed)
+
+@tree.command(name="send", description="Envia sats a algun usuario")
+@app_commands.describe(usuario="Usuario a enviar sats", monto="Monto en sats")
+async def send(interaction: discord.Interaction, usuario: discord.Member, monto: int):
+    """Envia sats a algun usuario"""
+    user_id = interaction.user.id
+    receptor_id = usuario.id
+
+    if user_id == receptor_id:
+        embed = discord.Embed(
+            title="❌ Error",
+            description="¡No puedes enviarte cash a ti mismo!",
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed)
+        return
+
+    if monto <= 0:
+        embed = discord.Embed(
+            title="❌ Error",
+            description="El monto a enviar debe ser mayor que cero.",
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed)
+        return
+
+    if user_id not in user_balances or user_balances.get(user_id, 0) < monto:
+        embed = discord.Embed(
+            title="❌ Error",
+            description="No tienes suficientes fondos para enviar cash.",
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed)
+        return
+
+    # Transferir los fondos
+    user_balances[user_id] -= monto
+    if receptor_id not in user_balances:
+        user_balances[receptor_id] = 0
+    user_balances[receptor_id] += monto
+    save_data()  # Guardar los datos después de la transacción
+
+    embed = discord.Embed(
+        title="💸 Envío Exitoso",
+        description=f"Enviaste **{monto} sats** a **{usuario.mention}**.",
+        color=discord.Color.green()
+    )
+    embed.set_footer(text=FOOTER_TEXT)
+    await interaction.response.send_message(embed=embed)
+
+    print(f"Envio: {interaction.user.name} dio {monto} sats a {usuario.name}.")
 
 @tree.command(name="depositar", description = "Genera una factura lightning para depositar")
 @app_commands.describe(monto = "Ingresa el monto en Sats")
@@ -281,21 +330,18 @@ async def depositar(interaction: discord.Interaction, monto: int):
 @tree.command(name="retirar", description="Retira fondos a una factura Lightning")
 @app_commands.describe(factura="Factura Lightning a la que retirar")
 async def retirar_fondos(interaction: discord.Interaction, factura: str):
-    """Retira fondos a una factura Lightning."""
-    user_id = interaction.user.id
-    balance = user_balances.get(user_id, 0)
-
-    if user_id not in user_balances or balance <= 0:
+    """Paga una factura Lightning para retirar fondos (solo admin)."""
+    if interaction.user.id != YOUR_DISCORD_ID:
         embed = discord.Embed(
             title="❌ Error",
-            description="No tienes fondos disponibles para retirar.",
+            description="No tienes permiso para usar este comando.",
             color=discord.Color.red()
         )
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
         return
 
     try:
-        # Obtener el monto de la factura ingresada por el usuario
+        # Obtener el monto de la factura
         invoice_details = await get_invoice_details(factura)
         if invoice_details is None:
             embed = discord.Embed(
@@ -303,59 +349,57 @@ async def retirar_fondos(interaction: discord.Interaction, factura: str):
                 description="No se pudieron obtener los detalles de la factura. Verifica que sea válida.",
                 color=discord.Color.red()
             )
-            await interaction.response.send_message(embed=embed)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
-        monto = invoice_details["amount"] / 1000  # Convertir a sats
+        monto = invoice_details["amount"] / 1000
+        user_id = interaction.user.id
+        balance = user_balances.get(user_id, 0)
 
-        # Verificar si el monto de la factura excede el saldo del usuario
         if monto > balance:
             embed = discord.Embed(
                 title="❌ Error",
                 description=f"No tienes suficientes fondos para retirar. Tu balance es de {balance} sats.",
                 color=discord.Color.red()
             )
-            await interaction.response.send_message(embed=embed)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
-        # Realizar el pago (usando ADMIN_KEY)
         headers = {'X-Api-Key': ADMIN_KEY}
-        payload = {"out": True, "bolt11": factura}
-        response = requests.post(f"{LNBITS_URL}/api/v1/payments", json=payload, headers=headers)
+        response = requests.post(f"{LNBITS_URL}/api/v1/payments", json={"out": True, "bolt11": factura}, headers=headers)
         data = response.json()
 
         if "payment_hash" not in data:
             embed = discord.Embed(
                 title="❌ Error",
-                description=f"Error al procesar el retiro: {data.get('detail', 'Desconocido')}",
+                description=f"Error al procesar el pago: {data.get('detail', 'Desconocido')}",
                 color=discord.Color.red()
             )
-            await interaction.response.send_message(embed=embed)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
-        # Restar el monto del balance del usuario (solo si el pago fue exitoso)
+        # Restar saldo al usuario
         user_balances[user_id] -= monto
         save_data()
 
         embed = discord.Embed(
-            title="💨 Retiro Exitoso",
-            description=f"Retiro de **{monto} sats** procesado correctamente. Nuevo balance: **{user_balances.get(user_id,0)} sats**",
-            color=discord.Color.green()
+            title="✅ Retiro Exitoso",
+            description=f"Retiro de **{monto} sats** procesado correctamente.",
+            color=0x4CAF50,  # Verde
+            timestamp=datetime.now()
         )
         embed.add_field(name="Hash del Pago", value=f"```{data['payment_hash']}```", inline=False)
         embed.set_footer(text=FOOTER_TEXT)
         await interaction.response.send_message(embed=embed)
 
-        print(f"Retiro: {interaction.user.name} retiró {monto} sats.")
-
     except Exception as e:
-        print(f"Error en el comando retirar: {e}\n{traceback.format_exc()}")
+        print(f"Error en retirar_fondos: {e}")
         embed = discord.Embed(
             title="❌ Error",
             description="Error interno al procesar el retiro. Consulta los logs para más detalles.",
             color=discord.Color.red()
         )
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 @tree.command(name="addcash", description = "[Admin] agrega saldo a un usuario")
 @app_commands.describe(usuario = "A que usuario se va añadir el cash",monto = "Ingresa el monto en sats")
@@ -400,6 +444,52 @@ async def agregar_fondos(interaction: discord.Interaction, usuario: discord.Memb
         print(f"Error en el comando agregar_fondos: {e}\n{traceback.format_exc()}")
         await interaction.response.send_message("Error interno al agregar los fondos.")
 
+@tree.command(name="tip", description="Da propina lightning con sats")
+@app_commands.describe(usuario="A quien le vas a dar la propina",monto = "Cuanto en sast le vas a dar de popina")
+async def tip(interaction: discord.Interaction, usuario: discord.Member, monto: int):
+    """Da propina a algun usuario con sats"""
+    user_id = interaction.user.id
+    receptor_id = usuario.id
+
+    if user_id == receptor_id:
+        embed = discord.Embed(
+            title="❌ Error",
+            description="¡No puedes dar propina a ti mismo!",
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral = True)
+        return
+
+    if monto <= 0:
+        embed = discord.Embed(
+            title="❌ Error",
+            description="El monto a agregar debe ser mayor que cero.",
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral = True)
+        return
+
+    try:
+        receptor_id = usuario.id
+        if receptor_id not in user_balances:
+            user_balances[receptor_id] = 0
+        user_balances[receptor_id] += monto
+        save_data()  # Guardar los datos después de agregar los fondos
+
+        embed = discord.Embed(
+            title="💸💸 has dado una propina",
+            description=f"Has dado **{monto} sats** a  **{usuario.mention}**.",
+            color=discord.Color.Green()
+        )
+        embed.set_footer(text=FOOTER_TEXT)
+        await interaction.response.send_message(embed=embed)
+
+        print(f"Admin: Se agregaron {monto} sats a {usuario.name}.")
+
+    except Exception as e:
+        print(f"Error en el comando agregar_fondos: {e}\n{traceback.format_exc()}")
+        await interaction.response.send_message("Error interno al agregar los fondos.")
+
 @tree.command(name = "help", description = "Mostrando todos los comandos")
 async def ayuda(interaction: discord.Interaction):
     """Muestra la lista de comandos disponibles."""
@@ -418,17 +508,70 @@ async def ayuda(interaction: discord.Interaction):
     embed.set_footer(text=FOOTER_TEXT)
     await interaction.response.send_message(embed=embed, ephemeral = True)
 
-# --- Comandos Globales ---
+# --- COMANDOS DEL ADMINISTRADOR ---
 @bot.command()
-@commands.guild_only()
-async def sync(ctx: commands.Context):
-    """Sincroniza los comandos slash."""
+async def sync(ctx):
+    """Sincroniza los comandos slash (solo admin)."""
     if ctx.author.id == YOUR_DISCORD_ID:
-        await ctx.send(f"Se sincronizarán los comandos")
-        await tree.sync(guild=ctx.guild)
-        await ctx.send("Comandos sincronizados globalmente.")
+        await bot.tree.sync()
+        await ctx.send("Comandos sincronizados correctamente.")
+    else:
+        await ctx.send("No tienes permiso para usar este comando.")
+
+# --- DETECCIÓN DE FACTURAS LIGHTNING ---
+@bot.event
+async def on_message(message):
+    """Detecta facturas Lightning en los mensajes."""
+    if message.author == bot.user:
         return
-    await ctx.send("No tienes permisos para usar este comando.")
+
+    if message.content.startswith("lnbc"):
+        embed = discord.Embed(
+            title="Confirmar Pago",
+            description=f"¿Deseas confirmar el pago de esta factura:\n```{message.content}```?",
+            color=0x4CAF50,  # Verde
+            timestamp=datetime.now()
+        )
+        embed.set_footer(text=FOOTER_TEXT)
+
+        # Añadir botones de confirmación
+        view = ConfirmPayment(message.content, message.author.id)
+        await message.channel.send(embed=embed, view=view)
+
+    await bot.process_commands(message)
+
+class ConfirmPayment(discord.ui.View):
+    def __init__(self, invoice, user_id):
+        super().__init__(timeout=60)
+        self.invoice = invoice
+        self.user_id = user_id
+
+    @discord.ui.button(label="Confirmar Pago", style=discord.ButtonStyle.green)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Confirma el pago de la factura (solo admin)."""
+        if interaction.user.id == YOUR_DISCORD_ID:
+            headers = {'X-Api-Key': ADMIN_KEY}
+            payload = {"out": True, "bolt11": self.invoice}
+            try:
+                response = await bot.loop.run_in_executor(None, lambda: requests.post(f"{LNBITS_URL}/api/v1/payments", json=payload, headers=headers, json=payload, timeout=10))
+                response.raise_for_status()  # Lanza una excepción para errores HTTP
+                data = response.json()
+                if "payment_hash" in data:
+                    embed = discord.Embed(
+                        title="Pago Confirmado",
+                        description=f"El pago de la factura ha sido confirmado correctamente.",
+                        color=0x4CAF50,  # Verde
+                        timestamp=datetime.now()
+                    )
+                    embed.add_field(name="Hash del Pago", value=f"```{data['payment_hash']}```", inline=False)
+                    await interaction.response.send_message(embed=embed, ephemeral=True)
+                else:
+                    await interaction.response.send_message(f"Error al confirmar el pago: {data.get('detail', 'Error Desconocido')}", ephemeral=True)
+            except requests.exceptions.RequestException as e:
+                print(f"Error al confirmar el pago: {e}")
+                await interaction.response.send_message(f"Error al confirmar el pago: {e}", ephemeral=True)
+        else:
+            await interaction.response.send_message("Solo el administrador puede confirmar este pago.", ephemeral=True)
 
 # --- TAREAS EN SEGUNDO PLANO ---
 async def check_payments():
@@ -446,46 +589,19 @@ async def check_payments():
                 if payment["pending"] is False and payment.get("incoming", False):
                     if payment["payment_hash"] != last_checked:  # Solo procesamos nuevos pagos
                         last_checked = payment["payment_hash"]
-                        user_memo = payment.get("memo", "Sin descripción")
-                        monto = payment["amount"] / 1000
-                        # Extraer el nombre del usuario del memo
-                        if "Depósito de" in user_memo:
-                            user_name = user_memo.replace("Depósito de ", "")
-                            #Buscarlo por nombre y discriminador
-                            user = discord.utils.get(bot.users, name=user_name)
-
-                            if user:
-                                user_id = user.id
-                                if user_id not in user_balances:
-                                    user_balances[user_id] = 0
-                                user_balances[user_id] += monto
-                                print(f"Acreditados {monto} sats a {user_name} (ID: {user_id}).")
-                                save_data()  # Guardar tras acreditación automatica
-                            else:
-                                print(f"No se pudo encontrar el usuario {user_name}.")
-
+                        await send_deposit_notification(payment)
         except Exception as e:
-            print(f"Error verificando pagos: {e}\n{traceback.format_exc()}")
+            print(f"Error verificando pagos: {e}")
 
         await asyncio.sleep(25)
 
 # --- EVENTOS ---
 @bot.event
 async def on_ready():
-    load_data()  # Cargar datos al iniciar el bot
+    await bot.tree.sync()
     print(f"✅ Bot conectado como: {bot.user}")
-    await update_bot_presence()
     bot.loop.create_task(check_payments())
-
-# --- Para actualizar los comandos automáticamente ---
-@bot.event
-async def on_connect():
-    print("Bot conectado, sincronizando comandos...")
-    try:
-        #synced = await bot.tree.sync() #Eliminado
-        print(f"Comandos sincronizados: ") #No hay syn, no se muestran
-    except Exception as e:
-        print(f"No se pudo sincronizar los comandos: {e}")
+    bot.loop.create_task(update_bot_presence())
 
 # --- INICIAR FLASK ---
 app = Flask(__name__)
@@ -495,7 +611,7 @@ def hello():
     return "Lightning Wallet Bot Backend is Running!"
 
 def run_flask():
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000)
 
 # --- INICIAR EL BOT ---
 if __name__ == "__main__":
@@ -504,3 +620,10 @@ if __name__ == "__main__":
     flask_thread.daemon = True
     flask_thread.start()
     bot.run(TOKEN)
+ Ahora si necesito que implementes estos dos comando y dime si no hay problemas.
+
+ * Lo mensajes del bot los necesito en embet
+ * Que el comamdo help de una buena ayuda no se entiende 
+ * El flask sigue sin iniciar
+ * Son comados con slash , todo bien hecho con descripción en español bien elaborado bonito y agradable.
+ * No se actualizan los comandos
