@@ -129,21 +129,13 @@ async def get_wallet_balance(wallet_id: str) -> int:
 
     try:
         response = requests.get(
-            f"{LNBITS_URL}/api/v1/wallet",
+            f"{LNBITS_URL}/api/v1/wallet/{wallet_id}",  # Obtener solo la billetera específica
             headers=headers,
             timeout=10
         )
         response.raise_for_status()
-        wallets_info = response.json()
-
-        # Buscar la billetera específica por ID
-        wallet_info = next((w for w in wallets_info if w['id'] == wallet_id), None)
-
-        if wallet_info:
-            return wallet_info['balance']
-        else:
-            print(f"Billetera no encontrada con ID: {wallet_id}")
-            return 0  # Billetera no encontrada
+        wallet_info = response.json()
+        return wallet_info['balance']
 
     except requests.exceptions.RequestException as e:
         print(f"Error al obtener el balance de la billetera: {e}")
@@ -154,7 +146,25 @@ async def get_wallet_balance(wallet_id: str) -> int:
     except Exception as e:
         print(f"Error inesperado: {e}")
         return -1
+
 # --- COMANDOS NUEVOS AÑADIDOS ---
+
+@bot.tree.command(name="crear_billetera", description="Crea una billetera si aún no tienes una.")
+async def crear_billetera(interaction: discord.Interaction):
+    """Crea una billetera para el usuario."""
+    user_id = str(interaction.user.id)
+    wallet = await get_user_wallet(user_id)
+
+    if wallet:
+        await interaction.response.send_message("Ya tienes una billetera creada.", ephemeral=True)
+    else:
+        # La función get_user_wallet crea la billetera si no existe
+        wallet = await get_user_wallet(user_id)
+        if wallet:
+            await interaction.response.send_message("Billetera creada exitosamente.", ephemeral=True)
+        else:
+            await interaction.response.send_message("No se pudo crear la billetera. Inténtalo de nuevo más tarde.", ephemeral=True)
+
 @bot.tree.command(name="addcash", description="Añade fondos a la billetera de un usuario (solo admin)")
 @app_commands.describe(usuario="Usuario al que añadir fondos", monto="Cantidad en satoshis")
 async def addcash(interaction: discord.Interaction, usuario: discord.Member, monto: int):
@@ -411,70 +421,36 @@ async def retirar_fondos(interaction: discord.Interaction, factura: str):
 @bot.tree.command(name="balance", description="Muestra el saldo actual de la billetera")
 async def ver_balance(interaction: discord.Interaction):
     """Muestra el saldo de la billetera"""
-    try:
-        user_id = str(interaction.user.id)  # Obtener el ID del usuario como string
-        wallet = await get_user_wallet(user_id)  # Obtener la billetera del usuario
+    user_id = str(interaction.user.id)
+    wallet = await get_user_wallet(user_id)
 
-        if not wallet:
-            await interaction.response.send_message(
-                "⚠️ No se pudo obtener tu billetera. Intenta de nuevo más tarde.",
-                ephemeral=True
-            )
-            return
-
-        headers = {
-            'X-Api-Key': ADMIN_KEY,
-            'Content-type': 'application/json'
-        }
-
-        response = requests.get(
-            f"{LNBITS_URL}/api/v1/wallet",
-            headers=headers,
-            timeout=10
+    if not wallet:
+        await interaction.response.send_message(
+            "⚠️ No se pudo obtener tu billetera. Usa /crear_billetera para crear una.",
+            ephemeral=True
         )
+        return
 
-        wallet_info = response.json()
+    balance = await get_wallet_balance(wallet['id']) # Usar wallet['id'] para obtener el balance
 
-        if 'error' in wallet_info:
-            await interaction.response.send_message(
-                f"🔴 Error al obtener balance: {wallet_info['error']}",
-                ephemeral=True
-            )
-            return
+    if balance == -1:
+        await interaction.response.send_message("⚠️ Error al obtener el balance.", ephemeral=True)
+        return
 
-        embed = discord.Embed(
-            title="💰 Balance de la Billetera",
-            color=0xF7931A,
-            timestamp=datetime.now()
-        )
+    embed = discord.Embed(
+        title="💰 Balance de la Billetera",
+        color=0xF7931A,
+        timestamp=datetime.now()
+    )
 
-        # Buscar la billetera del usuario en la respuesta de la API
-        user_wallet_info = next((w for w in wallet_info if w['id'] == wallet['id']), None)
+    embed.add_field(
+        name="Saldo Disponible",
+        value=f"**{balance / 1000:,} sats**",
+        inline=False
+    )
 
-        if user_wallet_info:
-            embed.add_field(
-                name="Saldo Disponible",
-                value=f"**{user_wallet_info['balance'] / 1000:,} sats**",
-                inline=False
-            )
-        else:
-            embed.add_field(
-                name="Saldo Disponible",
-                value="**0 sats** (Billetera no encontrada)",
-                inline=False
-            )
-
-        if 'name' in wallet_info:
-            embed.add_field(name="Nombre", value=wallet_info['name'], inline=True)
-        if 'id' in wallet_info:
-            embed.add_field(name="ID Billetera", value=wallet_info['id'][:12]+"...", inline=True)
-
-        embed.set_footer(text=FOOTER_TEXT)
-        await interaction.response.send_message(embed=embed)
-
-    except Exception as e:
-        print(f"Error en ver_balance: {e}")
-        await interaction.response.send_message("⚠️ Error al obtener el balance", ephemeral=True)
+    embed.set_footer(text=FOOTER_TEXT)
+    await interaction.response.send_message(embed=embed)
 
 # --- FLASK WEB APP (AÑADIDO) ---
 app = Flask(__name__)
