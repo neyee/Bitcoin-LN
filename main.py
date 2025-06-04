@@ -13,7 +13,7 @@ TOKEN = os.getenv('DISCORD_TOKEN')
 LNBITS_URL = os.getenv('LNBITS_URL', 'https://demo.lnbits.com').rstrip('/')
 INVOICE_KEY = os.getenv('INVOICE_KEY')
 ADMIN_KEY = os.getenv('ADMIN_KEY')
-FOOTER_TEXT = os.getenv('FOOTER_TEXT', '⚡ Lightning Wallet Bot')
+FOOTER_TEXT = os.getenv('FOOTER_TEXT', 'Sistema de Créditos Discord')  # Modificado
 
 # AÑADIDO SOLO ESTO (tu ID)
 YOUR_DISCORD_ID = 865597179145486366
@@ -45,13 +45,13 @@ def generate_lightning_qr(lightning_invoice):
 # --- NUEVAS FUNCIONES AÑADIDAS ---
 
 async def get_user_wallet(user_id: str):
-    """Obtiene la información de la billetera de un usuario. Si no existe, la crea."""
+    """Obtiene la información de la cuenta de un usuario. Si no existe, la crea.""" #Modificado
     headers = {
         'X-Api-Key': ADMIN_KEY,
         'Content-type': 'application/json'
     }
     try:
-        # Intenta obtener la billetera existente
+        # Intenta obtener la cuenta existente
         response = requests.get(
             f"{LNBITS_URL}/api/v1/wallets",
             headers=headers,
@@ -59,14 +59,14 @@ async def get_user_wallet(user_id: str):
         )
         response.raise_for_status()
         wallets = response.json()
-        # Buscar la billetera del usuario por ID
+        # Buscar la cuenta del usuario por ID
         user_wallet = next((wallet for wallet in wallets if wallet['name'] == str(user_id)), None)
         if user_wallet:
             return user_wallet
         else:
-             # Si no existe, crear una nueva billetera para el usuario
+             # Si no existe, crear una nueva cuenta para el usuario
             payload = {
-                "wallet_name": str(user_id)  # Usar el ID de Discord como nombre de la billetera
+                "wallet_name": str(user_id)  # Usar el ID de Discord como nombre de la cuenta
             }
             response = requests.post(
                 f"{LNBITS_URL}/api/v1/wallets",
@@ -76,11 +76,11 @@ async def get_user_wallet(user_id: str):
             )
             response.raise_for_status()
             new_wallet = response.json()
-            print(f"Billetera creada para el usuario {user_id}: {new_wallet}")
+            print(f"Cuenta creada para el usuario {user_id}: {new_wallet}") # Modificado
             return new_wallet
 
     except requests.exceptions.RequestException as e:
-        print(f"Error al obtener o crear la billetera: {e}")
+        print(f"Error al obtener o crear la cuenta: {e}") #Modificado
         return None
     except (KeyError, ValueError, TypeError) as e:
         print(f"Error al analizar la respuesta de la API: {e}")
@@ -91,7 +91,7 @@ async def get_user_wallet(user_id: str):
 
 
 async def add_funds_to_wallet(wallet_id: str, amount: int):
-    """Añade fondos a una billetera."""
+    """Añade creditos a una cuenta.""" # Modificado
     headers = {
         'X-Api-Key': ADMIN_KEY,
         'Content-type': 'application/json'
@@ -99,8 +99,8 @@ async def add_funds_to_wallet(wallet_id: str, amount: int):
     payload = {
         "out": False,
         "amount": amount,
-        "memo": f"Fondos añadidos por el admin",
-        "unit": "sat",
+        "memo": f"Créditos añadidos por el admin", # Modificado
+        "unit": "sat", # OJO: ESTO NO SE CAMBIA, SIGUE SIENDO SATOSHIS INTERNAMENTE
     }
     try:
         response = requests.post(
@@ -114,14 +114,14 @@ async def add_funds_to_wallet(wallet_id: str, amount: int):
         if 'payment_hash' in payment_data:
           return True
         else:
-          print(f"Error al agregar fondos: {payment_data}")
+          print(f"Error al agregar creditos: {payment_data}") # Modificado
           return False
 
     except requests.exceptions.RequestException as e:
-        print(f"Error al agregar fondos: {e}")
+        print(f"Error al agregar creditos: {e}") # Modificado
         return False
 async def get_wallet_balance(wallet_id: str) -> int:
-    """Obtiene el balance de una billetera en satoshis."""
+    """Obtiene el balance de una cuenta en creditos.""" # Modificado
     headers = {
         'X-Api-Key': ADMIN_KEY,
         'Content-type': 'application/json'
@@ -129,7 +129,7 @@ async def get_wallet_balance(wallet_id: str) -> int:
 
     try:
         response = requests.get(
-            f"{LNBITS_URL}/api/v1/wallet/{wallet_id}",  # Obtener solo la billetera específica
+            f"{LNBITS_URL}/api/v1/wallet/{wallet_id}",  # Obtener solo la cuenta específica
             headers=headers,
             timeout=10
         )
@@ -138,7 +138,7 @@ async def get_wallet_balance(wallet_id: str) -> int:
         return wallet_info['balance']
 
     except requests.exceptions.RequestException as e:
-        print(f"Error al obtener el balance de la billetera: {e}")
+        print(f"Error al obtener el balance de la cuenta: {e}") # Modificado
         return -1  # Error al obtener el balance
     except (KeyError, ValueError, TypeError) as e:
         print(f"Error al analizar la respuesta de la API: {e}")
@@ -149,44 +149,44 @@ async def get_wallet_balance(wallet_id: str) -> int:
 
 # --- COMANDOS NUEVOS AÑADIDOS ---
 
-@bot.tree.command(name="crear_billetera", description="Crea una billetera si aún no tienes una.")
+@bot.tree.command(name="crear_cuenta", description="Crea una cuenta si aún no tienes una.") #Modificado
 async def crear_billetera(interaction: discord.Interaction):
-    """Crea una billetera para el usuario."""
+    """Crea una cuenta para el usuario.""" #Modificado
     user_id = str(interaction.user.id)
     wallet = await get_user_wallet(user_id)
 
     if wallet:
-        await interaction.response.send_message("Ya tienes una billetera creada.", ephemeral=True)
+        await interaction.response.send_message("Ya tienes una cuenta creada.", ephemeral=True) #Modificado
     else:
-        # La función get_user_wallet crea la billetera si no existe
+        # La función get_user_wallet crea la cuenta si no existe
         wallet = await get_user_wallet(user_id)
         if wallet:
-            await interaction.response.send_message("Billetera creada exitosamente.", ephemeral=True)
+            await interaction.response.send_message("Cuenta creada exitosamente.", ephemeral=True) #Modificado
         else:
-            await interaction.response.send_message("No se pudo crear la billetera. Inténtalo de nuevo más tarde.", ephemeral=True)
+            await interaction.response.send_message("No se pudo crear la cuenta. Inténtalo de nuevo más tarde.", ephemeral=True) #Modificado
 
-@bot.tree.command(name="addcash", description="Añade fondos a la billetera de un usuario (solo admin)")
-@app_commands.describe(usuario="Usuario al que añadir fondos", monto="Cantidad en satoshis")
+@bot.tree.command(name="addcash", description="Añade créditos a la cuenta de un usuario (solo admin)") #Modificado
+@app_commands.describe(usuario="Usuario al que añadir créditos", monto="Cantidad de créditos") #Modificado
 async def addcash(interaction: discord.Interaction, usuario: discord.Member, monto: int):
-    """Añade fondos a la billetera de un usuario (solo admin)."""
+    """Añade créditos a la cuenta de un usuario (solo admin).""" #Modificado
     if interaction.user.id != YOUR_DISCORD_ID:
         await interaction.response.send_message("Solo el administrador puede usar este comando.", ephemeral=True)
         return
 
     wallet = await get_user_wallet(str(usuario.id))
     if not wallet:
-        await interaction.response.send_message(f"No se pudo obtener o crear la billetera para {usuario.mention}.", ephemeral=True)
+        await interaction.response.send_message(f"No se pudo obtener o crear la cuenta para {usuario.mention}.", ephemeral=True) #Modificado
         return
 
     success = await add_funds_to_wallet(wallet['id'], monto)
     if success:
-      await interaction.response.send_message(f"Se han añadido {monto} satoshis a la billetera de {usuario.mention}.", ephemeral=False)
+      await interaction.response.send_message(f"Se han añadido {monto} créditos a la cuenta de {usuario.mention}.", ephemeral=False) #Modificado
     else:
-      await interaction.response.send_message(f"Error al añadir fondos a la billetera de {usuario.mention}.", ephemeral=True)
+      await interaction.response.send_message(f"Error al añadir créditos a la cuenta de {usuario.mention}.", ephemeral=True) #Modificado
 
 
-@bot.tree.command(name="tip", description="Da propina a otro usuario")
-@app_commands.describe(usuario="Usuario al que dar propina", monto="Cantidad en satoshis")
+@bot.tree.command(name="tip", description="Da propina a otro usuario") #Modificado
+@app_commands.describe(usuario="Usuario al que dar propina", monto="Cantidad de créditos") #Modificado
 async def tip(interaction: discord.Interaction, usuario: discord.Member, monto: int):
     """Da propina a otro usuario."""
     sender_id = str(interaction.user.id)
@@ -200,12 +200,12 @@ async def tip(interaction: discord.Interaction, usuario: discord.Member, monto: 
         await interaction.response.send_message("El monto debe ser mayor que cero.", ephemeral=True)
         return
 
-    # Obtener o crear billeteras para el remitente y el receptor
+    # Obtener o crear cuentas para el remitente y el receptor
     sender_wallet = await get_user_wallet(sender_id)
     receiver_wallet = await get_user_wallet(receiver_id)
 
     if not sender_wallet or not receiver_wallet:
-        await interaction.response.send_message("No se pudieron obtener las billeteras. Inténtalo de nuevo más tarde.", ephemeral=True)
+        await interaction.response.send_message("No se pudieron obtener las cuentas. Inténtalo de nuevo más tarde.", ephemeral=True) #Modificado
         return
     # Crear factura para el remitente
     headers = {
@@ -216,7 +216,7 @@ async def tip(interaction: discord.Interaction, usuario: discord.Member, monto: 
         "out": False,
         "amount": monto,
         "memo": f"Propina para {usuario.name}",
-        "unit": "sat"
+        "unit": "sat" # OJO: ESTO NO SE CAMBIA, SIGUE SIENDO SATOSHIS INTERNAMENTE
     }
     try:
         response = requests.post(
@@ -231,7 +231,7 @@ async def tip(interaction: discord.Interaction, usuario: discord.Member, monto: 
     except requests.exceptions.RequestException as e:
         await interaction.response.send_message("Error al generar la factura para la propina.", ephemeral=True)
         return
-    # Pagar la factura desde la billetera del remitente
+    # Pagar la factura desde la cuenta del remitente
     headers = {
         'X-Api-Key': ADMIN_KEY,
         'Content-type': 'application/json'
@@ -253,9 +253,9 @@ async def tip(interaction: discord.Interaction, usuario: discord.Member, monto: 
           #Acreditar monto al receptor
           success = await add_funds_to_wallet(receiver_wallet['id'], monto)
           if success:
-            await interaction.response.send_message(f"{interaction.user.mention} ha dado {monto} satoshis a {usuario.mention}.", ephemeral=False)
+            await interaction.response.send_message(f"{interaction.user.mention} ha dado {monto} créditos a {usuario.mention}.", ephemeral=False) #Modificado
           else:
-            await interaction.response.send_message(f"Error al acreditar fondos a {usuario.mention}.", ephemeral=True)
+            await interaction.response.send_message(f"Error al acreditar créditos a {usuario.mention}.", ephemeral=True) #Modificado
         else:
           await interaction.response.send_message("Error al pagar la factura de la propina.", ephemeral=True)
     except requests.exceptions.RequestException as e:
@@ -266,14 +266,14 @@ async def tip(interaction: discord.Interaction, usuario: discord.Member, monto: 
 # --- RESTO DE COMANDOS ORIGINALES SIN MODIFICAR ---
 @bot.tree.command(name="factura", description="Genera una factura Lightning con QR")
 @app_commands.describe(
-    monto="Cantidad en satoshis (mínimo 10)",
+    monto="Cantidad en satoshis (mínimo 10)", # OJO: ESTO NO SE CAMBIA, SIGUE SIENDO SATOSHIS INTERNAMENTE
     descripcion="Concepto del pago (opcional)"
 )
 async def generar_factura(interaction: discord.Interaction, monto: int, descripcion: str = "Factura generada desde Discord"):
     """Genera una factura Lightning con QR"""
     try:
         if monto < 10:
-            await interaction.response.send_message("🔶 El monto mínimo es 10 satoshis", ephemeral=True)
+            await interaction.response.send_message("🔶 El monto mínimo es 10 satoshis", ephemeral=True) # OJO: ESTO NO SE CAMBIA, SIGUE SIENDO SATOSHIS INTERNAMENTE
             return
 
         headers = {
@@ -284,7 +284,7 @@ async def generar_factura(interaction: discord.Interaction, monto: int, descripc
             "out": False,
             "amount": monto,
             "memo": descripcion[:200],
-            "unit": "sat"
+            "unit": "sat" # OJO: ESTO NO SE CAMBIA, SIGUE SIENDO SATOSHIS INTERNAMENTE
         }
 
         response = requests.post(
@@ -317,7 +317,7 @@ async def generar_factura(interaction: discord.Interaction, monto: int, descripc
 
         embed = discord.Embed(
             title="📄 Factura Lightning",
-            description=f"**{monto:,} satoshis**\n💡 {descripcion}",
+            description=f"**{monto:,} satoshis**\n💡 {descripcion}", # OJO: ESTO NO SE CAMBIA, SIGUE SIENDO SATOSHIS INTERNAMENTE
             color=0x9932CC,
             timestamp=datetime.now()
         )
@@ -329,8 +329,8 @@ async def generar_factura(interaction: discord.Interaction, monto: int, descripc
         )
         embed.set_footer(text=FOOTER_TEXT)
 
-        qr_file = discord.File(qr_buffer, filename=f"factura_{monto}sats.png")
-        embed.set_image(url=f"attachment://factura_{monto}sats.png")
+        qr_file = discord.File(qr_buffer, filename=f"factura_{monto}sats.png") # OJO: ESTO NO SE CAMBIA, SIGUE SIENDO SATOSHIS INTERNAMENTE
+        embed.set_image(url=f"attachment://factura_{monto}sats.png") # OJO: ESTO NO SE CAMBIA, SIGUE SIENDO SATOSHIS INTERNAMENTE
 
         await interaction.response.send_message(embed=embed, file=qr_file)
 
@@ -338,20 +338,19 @@ async def generar_factura(interaction: discord.Interaction, monto: int, descripc
         print(f"Error en generar_factura: {e}")
         await interaction.response.send_message("⚠️ Error interno del sistema", ephemeral=True)
 
-
-@bot.tree.command(name="retirar", description="Pagar una factura Lightning (retirar fondos)")
-@app_commands.describe(factura="Factura Lightning en formato BOLT11")
+@bot.tree.command(name="retirar", description="Pagar una factura Lightning (retirar fondos)") # OJO: EL NOMBRE DEL COMANDO NO SE CAMBIA
+@app_commands.describe(factura="Factura Lightning en formato BOLT11") # OJO: LA DESCRIPCION NO SE CAMBIA
 async def retirar_fondos(interaction: discord.Interaction, factura: str):
-    """Paga una factura Lightning para retirar fondos"""
+    """Paga una factura Lightning para retirar fondos""" # OJO: LA DESCRIPCION NO SE CAMBIA
     user_id = str(interaction.user.id)
     wallet = await get_user_wallet(user_id)
     if not wallet:
-        await interaction.response.send_message("⚠️ No se pudo obtener tu billetera. Intenta de nuevo más tarde.", ephemeral=True)
+        await interaction.response.send_message("⚠️ No se pudo obtener tu cuenta. Intenta de nuevo más tarde.", ephemeral=True) #Modificado
         return
 
     balance = await get_wallet_balance(wallet['id'])
     if balance < 4:
-        await interaction.response.send_message("🔶 Necesitas al menos 4 satoshis para cubrir la comisión de retiro.", ephemeral=True)
+        await interaction.response.send_message("🔶 Necesitas al menos 4 créditos para cubrir la comisión de retiro.", ephemeral=True) #Modificado
         return
 
     try:
@@ -390,7 +389,7 @@ async def retirar_fondos(interaction: discord.Interaction, factura: str):
 
         embed = discord.Embed(
             title="✅ Pago Realizado",
-            description=f"Se ha procesado el pago correctamente. (Comisión: 4 sats)",
+            description=f"Se ha procesado el pago correctamente. (Comisión: 4 créditos)", #Modificado
             color=0x28a745,
             timestamp=datetime.now()
         )
@@ -404,7 +403,7 @@ async def retirar_fondos(interaction: discord.Interaction, factura: str):
         if 'amount' in payment_data:
             embed.add_field(
                 name="Monto",
-                value=f"**{payment_data['amount'] / 1000:,} sats**",
+                value=f"**{payment_data['amount'] / 1000:,} sats**", # OJO: ESTO NO SE CAMBIA, SIGUE SIENDO SATOSHIS INTERNAMENTE
                 inline=True
             )
 
@@ -418,15 +417,15 @@ async def retirar_fondos(interaction: discord.Interaction, factura: str):
             ephemeral=True
         )
 
-@bot.tree.command(name="balance", description="Muestra el saldo actual de la billetera")
+@bot.tree.command(name="balance", description="Muestra el balance actual de la cuenta") #Modificado
 async def ver_balance(interaction: discord.Interaction):
-    """Muestra el saldo de la billetera"""
+    """Muestra el balance de la cuenta""" #Modificado
     user_id = str(interaction.user.id)
     wallet = await get_user_wallet(user_id)
 
     if not wallet:
         await interaction.response.send_message(
-            "⚠️ No se pudo obtener tu billetera. Usa /crear_billetera para crear una.",
+            "⚠️ No se pudo obtener tu cuenta. Usa /crear_cuenta para crear una.", #Modificado
             ephemeral=True
         )
         return
@@ -438,14 +437,14 @@ async def ver_balance(interaction: discord.Interaction):
         return
 
     embed = discord.Embed(
-        title="💰 Balance de la Billetera",
+        title="💰 Balance de la Cuenta", #Modificado
         color=0xF7931A,
         timestamp=datetime.now()
     )
 
     embed.add_field(
-        name="Saldo Disponible",
-        value=f"**{balance / 1000:,} sats**",
+        name="Saldo Disponible", #Modificado
+        value=f"**{balance / 1000:,} créditos**", #Modificado
         inline=False
     )
 
@@ -459,7 +458,7 @@ app = Flask(__name__)
 async def show_balance(user_id):
     wallet = await get_user_wallet(user_id)
     if not wallet:
-        return "⚠️ Billetera no encontrada"
+        return "⚠️ Cuenta no encontrada" #Modificado
 
     balance = await get_wallet_balance(wallet['id'])
     if balance == -1:
@@ -469,12 +468,12 @@ async def show_balance(user_id):
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Balance de la Billetera</title>
+        <title>Balance de la Cuenta</title> #Modificado
     </head>
     <body>
-        <h1>Balance de la Billetera</h1>
+        <h1>Balance de la Cuenta</h1> #Modificado
         <p>Usuario ID: {user_id}</p>
-        <p>Saldo: {balance / 1000:.3f} sats</p>
+        <p>Saldo: {balance / 1000:.3f} créditos</p> #Modificado
     </body>
     </html>
     """
