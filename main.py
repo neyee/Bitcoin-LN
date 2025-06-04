@@ -68,7 +68,7 @@ def obtener_balance(user_id):
             if data:
                 return data[0]  # Balance
             else:
-                return 0  # Balance por defecto si no existe la cuenta
+                return None  # Retorna None si no existe la cuenta
         except sqlite3.Error as e:
             print(f"Error al obtener el balance: {e}")
             return None
@@ -155,8 +155,6 @@ def generate_lightning_qr(lightning_invoice):
     except Exception as e:
         print(f"Error generando QR: {e}")
         return None
-
-# --- NUEVAS FUNCIONES AÑADIDAS ---
 
 async def get_or_create_lnbits_wallet(user_id: str):
     """Obtiene la billetera LNbits de un usuario. Si no existe, la crea."""
@@ -320,7 +318,6 @@ async def generar_factura(interaction: discord.Interaction, monto: int, descripc
 
         response = requests.post(
             f"{LNBITS_URL}/api/v1/payments",
-            json=payload,
             headers=headers,
             timeout=10
         )
@@ -388,8 +385,8 @@ async def retirar_fondos(interaction: discord.Interaction, factura: str):
     lnbits_wallet_id = await get_or_create_lnbits_wallet(user_id)
 
     if not lnbits_wallet_id:
-      await interaction.response.send_message("⚠️ No se pudo obtener o crear tu billetera de retiro. Intenta de nuevo más tarde.", ephemeral=True)
-      return
+        await interaction.response.send_message("⚠️ No se pudo obtener o crear tu billetera de retiro. Intenta de nuevo más tarde.", ephemeral=True)
+        return
 
     try:
         if not factura.startswith("lnbc"):
@@ -402,8 +399,8 @@ async def retirar_fondos(interaction: discord.Interaction, factura: str):
         #Transferir los creditos virtuales a la billetera LNbits (MENOS LA COMISION)
         success = await add_funds_to_lnbits_wallet(lnbits_wallet_id, balance - 4)
         if not success:
-          await interaction.response.send_message("⚠️ No se pudieron transferir tus créditos a la billetera de retiro. Intenta de nuevo más tarde.", ephemeral=True)
-          return
+            await interaction.response.send_message("⚠️ No se pudieron transferir tus créditos a la billetera de retiro. Intenta de nuevo más tarde.", ephemeral=True)
+            return
 
         headers = {
             'X-Api-Key': ADMIN_KEY,
@@ -416,7 +413,6 @@ async def retirar_fondos(interaction: discord.Interaction, factura: str):
 
         response = requests.post(
             f"{LNBITS_URL}/api/v1/payments",
-            json=payload,
             headers=headers,
             timeout=10
         )
@@ -432,7 +428,7 @@ async def retirar_fondos(interaction: discord.Interaction, factura: str):
             return
 
         #Restablecer el balance virtual a cero (ya que se transfirieron los creditos a LNbits)
-        actualizar_balance(user_id,0)
+        actualizar_balance(user_id, 0)
 
         embed = discord.Embed(
             title="✅ Pago Realizado",
