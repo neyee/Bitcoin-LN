@@ -183,7 +183,7 @@ async def retirar_fondos(interaction: discord.Interaction, factura: str):
             )
 
         embed.set_footer(text=FOOTER_TEXT)
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, )
 
     except Exception as e:
         print(f"Error en retirar_fondos: {e}")
@@ -240,7 +240,7 @@ async def ver_balance(interaction: discord.Interaction):
         print(f"Error en ver_balance: {e}")
         await interaction.response.send_message("⚠️ Error al obtener el balance", ephemeral=True)
 
-# --- EVENTOS ---
+# --- INICIO DEL BOT (DISCORD) ---
 @bot.event
 async def on_connect():
     try:
@@ -248,11 +248,6 @@ async def on_connect():
         print(f"Synced {len(synced)} command(s)")
     except Exception as e:
         print(f"Error al sincronizar comandos: {e}")
-@bot.event
-async def on_ready():
-
-    print(f"\n✅ Bot conectado como: {bot.user}")
-    print(f"🌐 URL LNBits: {LNBITS_URL}")
 
 # --- INICIO DE FLASK ---
 app = Flask(__name__)
@@ -284,4 +279,5 @@ if __name__ == "__main__":
       discord_thread.start()
 
       # Lanzar la aplicación Flask en el hilo principal
-      app.run(host='0.0.0.0', port=5000)
+      port = 5000
+      app.run(host='0.0.0.0', port=port)
