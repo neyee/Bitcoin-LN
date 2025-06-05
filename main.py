@@ -1,59 +1,144 @@
-import telebot
+import discord
+from discord.ext import commands
 import os
+from datetime import datetime
+from flask import Flask, render_template_string
+import threading
 
 # --- CONFIGURACIÓN ---
-TOKEN = os.getenv("TELEGRAM_TOKEN")  # Reemplaza con el token de tu bot de Telegram
-ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID"))  # Reemplaza con tu ID de usuario de Telegram (Administrador)
-FOOTER_TEXT = "Bot de Tasa de Cambio"
+TOKEN = os.getenv("DISCORD_TOKEN")  # Reemplaza con el token de tu bot
+ADMIN_ROLE_ID = int(os.getenv("ADMIN_ROLE_ID", 0))  # Reemplaza con el ID del rol de administrador
+CHANNEL_ID = int(os.getenv("CHANNEL_ID", 0))  # Reemplaza con el ID del canal donde se publicará la tasa
+FOOTER_TEXT = "Tasa de Cambio - Bot Admin"
 
 # --- VARIABLE GLOBAL PARA LA TASA DE CAMBIO ---
-tasa_cambio = None
+tasa_dolar = None
 
-# --- INICIALIZACIÓN DEL BOT ---
-bot = telebot.TeleBot(TOKEN)
+# --- CONFIGURACIÓN DEL BOT ---
+intents = discord.Intents.default()
+bot = commands.Bot(command_prefix="!", intents=intents)
+
+# --- FUNCIONES AUXILIARES ---
+async def enviar_mensaje_tasa(tasa, channel):
+    """Envía un mensaje con la tasa de cambio en un embed."""
+    embed = discord.Embed(
+        title="💰 Tasa de Cambio del Dólar 💰",
+        description=f"La tasa de cambio actual es: **1 USD = {tasa} Bs**",
+        color=discord.Color.green(),
+        timestamp=datetime.utcnow()
+    )
+    embed.set_footer(text=FOOTER_TEXT)
+    await channel.send(embed=embed)
 
 # --- COMANDOS ---
-@bot.message_handler(commands=['start', 'help'])
-def send_welcome(message):
-    """Maneja los comandos /start y /help."""
-    bot.reply_to(message, f"""
-¡Hola! Soy un bot que te proporciona la tasa de cambio.
-Soy manejado por un administrador.
-- Usa /dolar para obtener la tasa actual.
-- Solo el administrador puede usar /settasa <tasa> para establecer la tasa.
-""")
+@bot.tree.command(name="settasa", description="Establece la tasa de cambio del dólar (solo admin)")
+async def settasa(interaction: discord.Interaction, tasa: float):
+    """Establece la tasa de cambio del dólar (solo para administradores)."""
+    # Verificar si el usuario tiene el rol de administrador
+    if not any(role.id == ADMIN_ROLE_ID for role in interaction.user.roles):
+        await interaction.response.send_message("Solo los administradores pueden usar este comando.", ephemeral=True)
+        return
 
-@bot.message_handler(commands=['settasa'])
-def set_tasa(message):
-    """Maneja el comando /settasa (solo para el administrador)."""
-    global tasa_cambio
-    user_id = message.from_user.id
+    global tasa_dolar
+    tasa_dolar = tasa
+    await interaction.response.send_message(f"Tasa de cambio establecida en **{tasa} Bs por USD**.", ephemeral=True)
 
-    if user_id == ADMIN_USER_ID:
-        try:
-            tasa = float(message.text.split()[1]) #Extrae la tasa del mensaje
-            tasa_cambio = tasa
-            bot.reply_to(message, f"✅ Tasa de cambio establecida en {tasa} VES por USD.")
-        except (IndexError, ValueError):
-            bot.reply_to(message, "❌ Uso incorrecto. Usa: /settasa <tasa>")
+@bot.tree.command(name="publicartasa", description="Publica la tasa de cambio en el canal (solo admin)")
+async def publicartasa(interaction: discord.Interaction):
+    """Publica la tasa de cambio en el canal (solo para administradores)."""
+    # Verificar si el usuario tiene el rol de administrador
+    if not any(role.id == ADMIN_ROLE_ID for role in interaction.user.roles):
+        await interaction.response.send_message("Solo los administradores pueden usar este comando.", ephemeral=True)
+        return
+
+    if tasa_dolar is None:
+        await interaction.response.send_message("La tasa de cambio no ha sido establecida. Usa /settasa para establecerla.", ephemeral=True)
+        return
+
+    try:
+        channel = bot.get_channel(CHANNEL_ID)
+        if channel:
+            await enviar_mensaje_tasa(tasa_dolar, channel)
+            await interaction.response.send_message("Tasa de cambio publicada en el canal.", ephemeral=True)
+        else:
+            await interaction.response.send_message("No se pudo encontrar el canal. Verifica el ID del canal.", ephemeral=True)
+    except Exception as e:
+        print(f"Error al publicar la tasa: {e}")
+        await interaction.response.send_message("Ocurrió un error al publicar la tasa. Consulta los registros del bot.", ephemeral=True)
+
+# --- EVENTOS ---
+@bot.event
+async def on_ready():
+    print(f"Bot conectado como {bot.user.name}")
+    try:
+        synced = await bot.tree.sync()
+        print(f"Synced {len(synced)} command(s)")
+    except Exception as e:
+        print(e)
+
+# --- FLASK WEB APP ---
+app = Flask(__name__)
+
+@app.route('/')
+def show_tasa():
+    """Muestra la tasa de cambio en una página web."""
+    if tasa_dolar is not None:
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Tasa de Cambio</title>
+            <style>
+                body {{
+                    font-family: Arial, sans-serif;
+                    background-color: #f0f0f0;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    min-height: 100vh;
+                    margin: 0;
+                }}
+                .container {{
+                    background-color: #fff;
+                    border-radius: 10px;
+                    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+                    padding: 20px;
+                    text-align: center;
+                }}
+                h1 {{
+                    color: #333;
+                }}
+                p {{
+                    font-size: 1.2em;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>Tasa de Cambio del Dólar</h1>
+                <p>1 USD = {tasa_dolar} VES</p>
+            </div>
+        </body>
+        </html>
+        """
+        return render_template_string(html_content)
     else:
-        bot.reply_to(message, "🚫 No tienes permiso para usar este comando.")
+        return "<h1>Tasa de Cambio No Disponible</h1><p>Por favor, establece la tasa de cambio a través del bot de Discord.</p>"
 
-@bot.message_handler(commands=['dolar'])
-def send_dolar_bcv(message):
-    """Maneja el comando /dolar."""
-    if tasa_cambio is not None:
-        mensaje = f"""
-🏦 **Tasa de Cambio** 🏦
-
-Tasa de cambio establecida por el administrador:
-**1 USD = {tasa_cambio} VES**
-"""
-        bot.reply_to(message, mensaje, parse_mode="Markdown")
-    else:
-        bot.reply_to(message, "⚠️ La tasa de cambio no ha sido establecida todavía. Contacta al administrador.")
-
-# --- INICIO DEL BOT ---
+# --- INICIO DEL BOT Y FLASK ---
 if __name__ == "__main__":
-    print("Iniciando el bot de Telegram...")
-    bot.infinity_polling()
+    # Iniciar el bot de Discord y Flask en hilos separados
+    import threading
+
+    def run_discord_bot():
+        bot.run(TOKEN)
+
+    def run_flask_app():
+        port = int(os.environ.get('PORT', 5000))
+        app.run(debug=True, host='0.0.0.0', port=port)
+
+    discord_thread = threading.Thread(target=run_discord_bot)
+    flask_thread = threading.Thread(target=run_flask_app)
+
+    discord_thread.start()
+    flask_thread.start()
