@@ -7,7 +7,7 @@ from datetime import datetime
 from discord.ext import commands
 from discord import app_commands
 from flask import Flask, render_template_string
-import sqlite3  # Importa sqlite3
+import json  # Importa json
 
 # Configuración desde variables de entorno
 TOKEN = os.getenv('DISCORD_TOKEN')
@@ -23,118 +23,25 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# --- CONFIGURACIÓN DE LA BASE DE DATOS SQLITE ---
-DATABASE_PATH = 'data/cuentas.db'
+# --- CONFIGURACIÓN DEL ARCHIVO JSON ---
+DATABASE_PATH = 'data/cuentas.json'
 
-def crear_conexion():
-    """Crea una conexión a la base de datos SQLite."""
+def cargar_cuentas():
+    """Carga los datos de las cuentas desde el archivo JSON."""
     try:
-        conn = sqlite3.connect(DATABASE_PATH)
-        return conn
-    except sqlite3.Error as e:
-        print(f"Error al conectar a la base de datos: {e}")
-        return None
+        with open(DATABASE_PATH, 'r') as f:
+            cuentas = json.load(f)
+    except FileNotFoundError:
+        cuentas = {}
+    except json.JSONDecodeError:
+        print("Error al decodificar el archivo JSON. Usando datos vacíos.")
+        cuentas = {}
+    return cuentas
 
-def crear_tablas():
-    """Crea la tabla 'cuentas' si no existe."""
-    conn = crear_conexion()
-    if conn is not None:
-        try:
-            cursor = conn.cursor()
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS cuentas (
-                    id TEXT PRIMARY KEY,
-                    balance INTEGER DEFAULT 0,  -- Saldo en créditos
-                    lnbits_wallet_id TEXT  -- ID de la billetera en LNbits (si existe)
-                )
-            """)
-            conn.commit()
-            print("Tabla 'cuentas' creada o ya existente.")
-        except sqlite3.Error as e:
-            print(f"Error al crear la tabla 'cuentas': {e}")
-        finally:
-            conn.close()
-    else:
-        print("No se pudo crear la conexión a la base de datos.")
-
-def obtener_balance(user_id):
-    """Obtiene el balance de la cuenta de un usuario desde la base de datos."""
-    conn = crear_conexion()
-    if conn is not None:
-        try:
-            cursor = conn.cursor()
-            cursor.execute("SELECT balance FROM cuentas WHERE id = ?", (str(user_id),))
-            data = cursor.fetchone()
-            if data:
-                return data[0]  # Balance
-            else:
-                return None  # Retorna None si no existe la cuenta
-        except sqlite3.Error as e:
-            print(f"Error al obtener el balance: {e}")
-            return None
-        finally:
-            conn.close()
-    else:
-        print("No se pudo crear la conexión a la base de datos.")
-        return None
-
-def actualizar_balance(user_id, balance):
-    """Actualiza el balance de la cuenta de un usuario en la base de datos."""
-    conn = crear_conexion()
-    if conn is not None:
-        try:
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT OR REPLACE INTO cuentas (id, balance)
-                VALUES (?, ?)
-            """, (str(user_id), balance))
-            conn.commit()
-        except sqlite3.Error as e:
-            print(f"Error al actualizar el balance: {e}")
-        finally:
-            conn.close()
-    else:
-        print("No se pudo crear la conexión a la base de datos.")
-
-def obtener_lnbits_wallet_id(user_id):
-    """Obtiene el ID de la billetera LNbits de un usuario desde la base de datos."""
-    conn = crear_conexion()
-    if conn is not None:
-        try:
-            cursor = conn.cursor()
-            cursor.execute("SELECT lnbits_wallet_id FROM cuentas WHERE id = ?", (str(user_id),))
-            data = cursor.fetchone()
-            if data:
-                return data[0]  # lnbits_wallet_id
-            else:
-                return None  # No existe la billetera LNbits
-        except sqlite3.Error as e:
-            print(f"Error al obtener el ID de la billetera LNbits: {e}")
-            return None
-        finally:
-            conn.close()
-    else:
-        print("No se pudo crear la conexión a la base de datos.")
-        return None
-
-def actualizar_lnbits_wallet_id(user_id, lnbits_wallet_id):
-    """Actualiza el ID de la billetera LNbits de un usuario en la base de datos."""
-    conn = crear_conexion()
-    if conn is not None:
-        try:
-            cursor = conn.cursor()
-            cursor.execute("""
-                UPDATE cuentas SET lnbits_wallet_id = ? WHERE id = ?
-            """, (lnbits_wallet_id, str(user_id)))
-            conn.commit()
-        except sqlite3.Error as e:
-            print(f"Error al actualizar el ID de la billetera LNbits: {e}")
-        finally:
-            conn.close()
-    else:
-        print("No se pudo crear la conexión a la base de datos.")
-
-# --- FIN DE LA CONFIGURACIÓN DE LA BASE DE DATOS SQLITE ---
+def guardar_cuentas(cuentas):
+    """Guarda los datos de las cuentas en el archivo JSON."""
+    with open(DATABASE_PATH, 'w') as f:
+        json.dump(cuentas, f, indent=4)
 
 # --- RESTO DEL CÓDIGO ORIGINAL SIN CAMBIOS ---
 def generate_lightning_qr(lightning_invoice):
@@ -158,6 +65,7 @@ def generate_lightning_qr(lightning_invoice):
 
 async def get_or_create_lnbits_wallet(user_id: str):
     """Obtiene la billetera LNbits de un usuario. Si no existe, la crea."""
+    # (Esta función no cambia, sigue interactuando con la API de LNbits)
     lnbits_wallet_id = obtener_lnbits_wallet_id(user_id)
     if lnbits_wallet_id:
         return lnbits_wallet_id  # Ya existe la billetera
@@ -230,13 +138,14 @@ async def add_funds_to_lnbits_wallet(wallet_id: str, amount: int):
 async def crear_cuenta(interaction: discord.Interaction):
     """Crea una cuenta en el sistema interno."""
     user_id = str(interaction.user.id)
-    balance = obtener_balance(user_id)
+    cuentas = cargar_cuentas()
 
-    if balance is not None:
+    if user_id in cuentas:
         await interaction.response.send_message("Ya tienes una cuenta creada en nuestro sistema.", ephemeral=True)
     else:
-        # Crear la cuenta en la base de datos (balance inicial = 0)
-        actualizar_balance(user_id, 0)
+        # Crear la cuenta en el diccionario (balance inicial = 0)
+        cuentas[user_id] = {"balance": 0, "lnbits_wallet_id": None}
+        guardar_cuentas(cuentas)
         await interaction.response.send_message("Cuenta creada exitosamente en nuestro sistema.", ephemeral=True)
 
 @bot.tree.command(name="addcash", description="Añade créditos a la cuenta de un usuario (solo admin)")
@@ -248,19 +157,20 @@ async def addcash(interaction: discord.Interaction, usuario: discord.Member, mon
         return
 
     user_id = str(usuario.id)
-    balance = obtener_balance(user_id)
+    cuentas = cargar_cuentas()
 
-    if balance is None:
+    if user_id not in cuentas:
         await interaction.response.send_message(f"El usuario {usuario.mention} no tiene una cuenta creada. Usa /crear_cuenta.", ephemeral=True)
         return
 
-    # Actualizar el balance en la base de datos
-    actualizar_balance(user_id, balance + monto)
+    # Actualizar el balance en el diccionario
+    cuentas[user_id]["balance"] += monto
+    guardar_cuentas(cuentas)
     await interaction.response.send_message(f"Se han añadido {monto} créditos a la cuenta de {usuario.mention}.", ephemeral=False)
 
 
 @bot.tree.command(name="tip", description="Da propina a otro usuario")
-@app_commands.describe(usuario="Usuario al que dar propina", monto="Cantidad de créditos")
+@app_commands.describe(usuario="Usuario al que dar créditos", monto="Cantidad de créditos")
 async def tip(interaction: discord.Interaction, usuario: discord.Member, monto: int):
     """Da propina a otro usuario."""
     sender_id = str(interaction.user.id)
@@ -274,21 +184,20 @@ async def tip(interaction: discord.Interaction, usuario: discord.Member, monto: 
         await interaction.response.send_message("El monto debe ser mayor que cero.", ephemeral=True)
         return
 
-    # Obtener los balances de los remitentes y receptores
-    sender_balance = obtener_balance(sender_id)
-    receiver_balance = obtener_balance(receiver_id)
+    cuentas = cargar_cuentas()
 
-    if sender_balance is None or receiver_balance is None:
+    if sender_id not in cuentas or receiver_id not in cuentas:
         await interaction.response.send_message("Uno de los usuarios no tiene una cuenta creada. Usa /crear_cuenta.", ephemeral=True)
         return
 
-    if sender_balance < monto:
+    if cuentas[sender_id]["balance"] < monto:
         await interaction.response.send_message("No tienes suficientes créditos para dar propina.", ephemeral=True)
         return
 
-    # Actualizar los balances en la base de datos
-    actualizar_balance(sender_id, sender_balance - monto)
-    actualizar_balance(receiver_id, receiver_balance + monto)
+    # Actualizar los balances en el diccionario
+    cuentas[sender_id]["balance"] -= monto
+    cuentas[receiver_id]["balance"] += monto
+    guardar_cuentas(cuentas)
     await interaction.response.send_message(f"{interaction.user.mention} ha dado {monto} créditos a {usuario.mention}.", ephemeral=False)
 
 
@@ -371,11 +280,13 @@ async def generar_factura(interaction: discord.Interaction, monto: int, descripc
 async def retirar_fondos(interaction: discord.Interaction, factura: str):
     """Paga una factura Lightning para retirar fondos"""
     user_id = str(interaction.user.id)
-    balance = obtener_balance(user_id)
+    cuentas = cargar_cuentas()
 
-    if balance is None:
+    if user_id not in cuentas:
         await interaction.response.send_message("⚠️ No tienes una cuenta creada. Usa /crear_cuenta para crear una.", ephemeral=True)
         return
+
+    balance = cuentas[user_id]["balance"]
 
     if balance < 4:
         await interaction.response.send_message("🔶 Necesitas al menos 4 créditos para cubrir la comisión de retiro.", ephemeral=True)
@@ -428,7 +339,8 @@ async def retirar_fondos(interaction: discord.Interaction, factura: str):
             return
 
         #Restablecer el balance virtual a cero (ya que se transfirieron los creditos a LNbits)
-        actualizar_balance(user_id, 0)
+        cuentas[user_id]["balance"] = 0
+        guardar_cuentas(cuentas)
 
         embed = discord.Embed(
             title="✅ Pago Realizado",
@@ -464,14 +376,16 @@ async def retirar_fondos(interaction: discord.Interaction, factura: str):
 async def ver_balance(interaction: discord.Interaction):
     """Muestra el balance de la cuenta"""
     user_id = str(interaction.user.id)
-    balance = obtener_balance(user_id)
+    cuentas = cargar_cuentas()
 
-    if balance is None:
+    if user_id not in cuentas:
         await interaction.response.send_message(
             "⚠️ No tienes una cuenta creada. Usa /crear_cuenta para crear una.",
             ephemeral=True
         )
         return
+
+    balance = cuentas[user_id]["balance"]
 
     embed = discord.Embed(
         title="💰 Balance de la Cuenta",
@@ -493,10 +407,11 @@ app = Flask(__name__)
 
 @app.route('/balance/<user_id>')
 async def show_balance(user_id):
-    balance = obtener_balance(user_id)
-
-    if balance is None:
+    cuentas = cargar_cuentas()
+    if user_id not in cuentas:
         return "⚠️ Cuenta no encontrada"
+
+    balance = cuentas[user_id]["balance"]
 
     html_content = f"""
     <!DOCTYPE html>
@@ -520,7 +435,11 @@ async def on_ready():
         await bot.tree.sync()
         print(f"\n✅ Bot conectado como: {bot.user}")
         print(f"🌐 URL LNBits: {LNBITS_URL}")
-        crear_tablas() #Crear la base de datos al iniciar el bot
+        #Crear el archivo si no existe
+        if not os.path.exists(DATABASE_PATH):
+          with open(DATABASE_PATH, 'w') as f:
+            json.dump({}, f)
+
     except Exception as e:
         print(f"Error al iniciar: {e}")
 
